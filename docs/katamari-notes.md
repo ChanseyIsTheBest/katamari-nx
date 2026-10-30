@@ -294,3 +294,24 @@ script (`out/pc_runs/sticks2` on D3D12, `out/pc_runs/vk_sticks` on Vulkan):
   depth target (`banjo_deko3d_depth_compression`, on), or the multisampled path itself. Two diagnostic emulator runs
   are prepared (`out/emu_nomsaa.toml`: MSAA off; `out/emu_nocomp.toml`: MSAA on, depth compression off); both were
   held by the free-commit-memory rule (other sessions' processes left 8-11 GB).
+
+Diagnostics of the blur (2026-10-30 afternoon; each a 330-400 s emulator run to the practice room, same script):
+
+| Run | Change | Blur |
+|---|---|---|
+| emu4_nocomp | `banjo_deko3d_depth_compression = false` | still there |
+| emu3_nomsaa | `disable_msaa = true` | still there, but the key does nothing in this port (the run still resolved 4-sample depth): it acts through banjo-nx's mid-asm hooks at N&B's render-target creation, not built here. `configs/renut_nomsaa.toml` dropped from the package |
+| emu5_nopass | the shader package without any of the 27 GLSL passes (all 129 compile) | still there |
+| emu7_gpuoff | `banjo_noncpu_enhancements = false` (every renderer enhancement off) | still there |
+
+So no banjo-nx optimisation causes it. The multisampled depth resolve's deko3d GLSL is right
+(`texelFetch(sampler2DMS(...), coord, 0)`), and the same HLSL is right on the PC's Vulkan path. Left: plume's deko3d
+handling of multisampled depth images, or the emulator's (Ryujinx's) sampling of them; the console decides
+(PACKAGE_NOTES: "look at the practice room"). emu8_opengl runs the same on Ryujinx's OpenGL back end to separate them.
+
+### The emulator A/B (2026-10-30)
+
+`emu6_ab` (25 min, renut_ab.toml's 9 targets): the do-nothing control (target 1) differed by 2.4 fps / 0.9 ms of
+render thread between its halves, as much as most targets; only the fast draw path (25) stood out (render thread
+8.6 vs 9.8 ms). **The user (16:5x): the emulator is not for performance A/Bs**, only for the picture; the A/B is the
+console's (renut_ab.toml in the package).

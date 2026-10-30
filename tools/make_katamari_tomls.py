@@ -69,7 +69,9 @@ VERIFY.update({'banjo_hot_guard_calls': '4000', 'banjo_hot_guard_period': '64'})
 CONFIGS = {
     'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
                                   'must count 0 differences)'),
-    'renut_nomsaa.toml': ({'disable_msaa': 'true'}, 'the game\'s MSAA off (one sample per pixel; not pixel-identical)'),
+    # renut_nomsaa.toml left out (2026-10-30): disable_msaa acts through banjo-nx's mid-asm hooks at N&B's render-target
+    # creation (renut_engine/hooks.cpp, not built here); in this port the key changes nothing (the emu3 run still
+    # resolved 4-sample depth). It needs hooks at Katamari's own render-target creation first.
     'renut_648_864.toml': ({'banjo_renut_render_height_handheld': '648', 'banjo_renut_render_height_docked': '864'},
                            'banjo-nx\'s internal resolution: 648 lines handheld, 864 docked (not pixel-identical)'),
     'renut_1080_docked.toml': ({'banjo_renut_render_height_docked': '1080'}, '1080 lines docked (not pixel-identical)'),
