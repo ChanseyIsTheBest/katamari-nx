@@ -774,7 +774,8 @@ uint64_t ChangedChunks(const u8 *device, u8 *shadow) {
 // device's. Each marked chunk is compared and stored into the shadow at once (the device's bytes as loaded for the
 // compare, stored whether or not they differ: no branch on the compare; storing equal bytes changes nothing).
 // Title update 3 (banjo-nx 2026-10-29): the snapshot is 12,720 bytes (d3d.h), its last chunk 48 bytes (40 on the base).
-static_assert(kLastChunkBytes == 48, "TakeLastChunk's loads");
+// katamari-nx (2026-10-30): XDK 2.0.5632's snapshot is 12,704 bytes (0x31A0): its last chunk is 32 bytes.
+static_assert(kLastChunkBytes == 32, "TakeLastChunk's loads");
 inline uint64_t TakeChunk(const u8 *device, u8 *shadow) {
 #if defined(__aarch64__)
   const uint8x16_t a0 = vld1q_u8(device), a1 = vld1q_u8(device + 16);
@@ -795,13 +796,10 @@ inline uint64_t TakeChunk(const u8 *device, u8 *shadow) {
 inline uint64_t TakeLastChunk(const u8 *device, u8 *shadow) {
 #if defined(__aarch64__)
   const uint8x16_t a0 = vld1q_u8(device), a1 = vld1q_u8(device + 16);
-  const uint8x16_t a2 = vld1q_u8(device + 32);
   const uint8x16_t d0 = veorq_u8(a0, vld1q_u8(shadow)), d1 = veorq_u8(a1, vld1q_u8(shadow + 16));
-  const uint8x16_t d2 = veorq_u8(a2, vld1q_u8(shadow + 32));
   vst1q_u8(shadow, a0);
   vst1q_u8(shadow + 16, a1);
-  vst1q_u8(shadow + 32, a2);
-  return vmaxvq_u8(vorrq_u8(vorrq_u8(d0, d1), d2)) != 0;
+  return vmaxvq_u8(vorrq_u8(d0, d1)) != 0;
 #else
   const bool differs = std::memcmp(device, shadow, kLastChunkBytes) != 0;
   std::memcpy(shadow, device, kLastChunkBytes);

@@ -47,7 +47,13 @@ SHIPPED = {
 PLAY = {'banjo_renut_diag_resolve_trace': 'false', 'banjo_renut_diag_gpu_shaders': 'false',
         'banjo_renut_diag_terrain': 'false'}
 AB = {'banjo_renut_ab_targets': '"45,48,46,47,50,1"', 'banjo_renut_ab_s': '30', 'banjo_renut_dynamic_resolution': 'false'}
+VERIFY = {k: 'true' for k in (
+    'banjo_renut_fast_draw_verify', 'banjo_renut_resource_objects_verify', 'banjo_renut_fetch_cache_verify',
+    'banjo_renut_whole_buffers_verify', 'banjo_renut_persistent_shared_verify', 'banjo_renut_chain_reuse_verify',
+    'banjo_renut_snapshot_deltas_verify', 'banjo_renut_store_cards_verify', 'banjo_renut_record_extents_verify')}
 CONFIGS = {
+    'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
+                                  'must count 0 differences)'),
     'renut_nomsaa.toml': ({'disable_msaa': 'true'}, 'the game\'s MSAA off (one sample per pixel; not pixel-identical)'),
     'renut_648_864.toml': ({'banjo_renut_render_height_handheld': '648', 'banjo_renut_render_height_docked': '864'},
                            'banjo-nx\'s internal resolution: 648 lines handheld, 864 docked (not pixel-identical)'),

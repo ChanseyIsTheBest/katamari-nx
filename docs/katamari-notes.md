@@ -21,6 +21,8 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
 | Renut's hooks | compiled but not registered until moved (`KATAMARI_RENUT_HOOKS`, `banjo_renut_select.h`) | an N&B address is an unrelated function in this game |
 | Banjo-only sources | not built: cheats / mid-asm hooks (`hooks.cpp`), title update, DLC, `banjo_me_hooks.cpp`, XAudio natives, hand natives, hot copies, shader harvest | each is written for N&B's addresses; `src/katamari_keys.cpp` defines the keys the kept files read (off) |
 | Host shader tools | glslangValidator, SPIRV-Cross, uam copied from banjo-nx's `out/` | built from the same sources this tree carries (`tools/deko3d_build_tools.sh`) |
+| Shipped `renut.toml` | 720 lines handheld and docked, no dynamic resolution, the game's MSAA (`disable_msaa = false`), shadow scale 1x, post-processing at the game's precision, no extra frame cap | pixel-identical by default; banjo-nx's 648/864 lines, dynamic resolution, MSAA off and 1080 docked are `configs/*.toml` for the user (`tools/make_katamari_tomls.py`) |
+| Four-core forwarder | program id `05D6EA1333487100` (banjo-nx's is `...7000`), NPDM `tools/forwarder/katamari_main.npdm` | its own id so the two NPDMs never collide; the user makes the forwarder |
 
 ## The game (2026-10-30)
 
@@ -50,6 +52,25 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
   candidates, **111 accepted** (vtables, callback tables, `lis/addi` callbacks; `app/overrides.toml`), rejected 127
   tail branches into function bodies, 15 without code, 4 beyond their gap, 4 without a terminator, 1 fragment; pass 2
   no new candidates (fixpoint).
+  - **Seven of those were wrong** and are removed (`app/overrides.toml`, with the reason): their "built at" address was
+    0x14 bytes before them, the `lis/addi` that builds a jump table's base right after its `bctr`; they were case code
+    of their parent (the codegen then reported "Jump target ... unresolved at bctr" for 0x8230DCD8, 0x8240305C,
+    0x8255BCD0, 0x82707584). A port taking this tool should drop "built at" candidates 0x14 after their build.
+- **First boot stop:** "Call to invalid or unregistered function at guest address 0x82689770": a 10-instruction table
+  accessor in a gap between two registered ones, reached through a pointer built elsewhere. **Gap sweep**
+  (`tools/gap_sweep.py`, new): candidates are the first word of every gap after its padding and the word after each
+  `blr` / `bctr` inside a gap, not within 0x800 bytes after a jump-table `bctr` (an indexed load feeding `mtctr`:
+  the first try without that rule took 2-instruction switch cases for functions and split their parents); the
+  checks are the pointer sweep's. **85 functions**, fixpoint after one pass; the codegen reports no unresolved branch.
+- **Jump tables** (`tools/switch_check.py`, from peggle2-nx): 768 switches; truncated 0, wrong targets 0, missed 0;
+  23 odd shapes generated as indirect jumps (to look at if one of them stops a run).
+- **Second boot stop:** "exception C000001D" (the generated `__builtin_trap` of an out-of-range switch) in
+  `sub_8222E438`: a dispatch through a table of four function starts (`0x82A196A8`) indexed by the word at `0x82B095E0`.
+  The generator had made it a switch on the loaded *address* (r11) with cases 0-3. Fixed with a `[[switch_tables]]`
+  entry on r10 (the index already times 4: the four targets at 0, 4, 8 and 12), `app/overrides.toml`. The other six
+  "no bound in the code" tables of `switch_check.py` switch on their index registers (checked in the generated code).
+- **setjmp / longjmp** by shape: setjmp `0x827EB5D0` (saves f14-f31 then r13-r31 into the buffer at r3, after a hook
+  word check), longjmp `0x827EB3B0` (about 20 callers in 0x828A-0x829A, image decoders' error exits).
 - 269 generated files.
 
 ## Renut's renderer at Katamari's addresses (2026-10-30)
@@ -79,8 +100,14 @@ and image dump, never the base game.
   GetDeviceCaps `sub_824E6410` (copies 304 bytes from `0x820FC1F8`), SetGammaRamp / SetPWLGamma `sub_824DE218` /
   `sub_824DE2F8` (called in N&B's order by InitializePresentationParameters), the surface-level getters read in the
   image (GetCubeMapSurface `sub_824D2160` keeps the face argument), and the ring and fence functions.
-- **Not hooked**: BeginExport / EndExport (XDK 2.0.5632 has no memexport), the command-buffer functions (no clear
-  counterpart; census pending), DrawIndexedVerticesUP, the one-instruction thunks, D3D_IsFusion, a few ambiguous ones.
+- **Not hooked**: BeginExport / EndExport (XDK 2.0.5632 has no memexport), the command-buffer functions, 
+  DrawIndexedVerticesUP, the one-instruction thunks, D3D_IsFusion, a few ambiguous ones. The XDK is linked
+  statically, so a function with no counterpart is usually not in the image at all (the command-buffer recorder and
+  runner have none: BeginCommandBuffer's best candidate is BeginTiling at 0.27). Two the game does use, checked by
+  hand: EndIndexedVertices is `sub_824D9CE8` (`Ring = VerticesRingEnd`, then a kick unless Flags has 0x80): on
+  Renut's devices, which carry the no-hardware flag 0x80, the game's code does exactly what Renut's hook does, so it
+  stays unhooked; BeginIndexedVertices `sub_824D97B8` (0.85 against N&B's `sub_8263EDA0`, called once from
+  `0x8271F7C8`) is not hooked in banjo-nx either.
 - **Tiling: XDK 2.0.5632 keeps the full public forms** (N&B's update dropped the unused arguments).
   BeginTiling is **`sub_824EFBC8`** (it stores the count at TileCount and the targets at TilingSurfaces, where the
   zones below put N&B's fields; the game calls it at `0x8271E62C`): BeginTiling(Flags r4, Count r5, pTileRects r6,
@@ -110,7 +137,10 @@ The displacements of 288 paired functions, N&B's update against Katamari:
 | 23976 .. 23980 | -1716 | BehaviorFlags 23980 -> 22264 (InitializeApiState, XenonGpu_Initialize) |
 | device size 0x5E00 | 0x5700 | Katamari allocates and clears 0x5700 (`li r3,22272`, `sub_824D0240`); N&B allocates 0x5E80, clears 0x5E00 |
 
-165 lines of Renut rewritten (`out/renut_map/offsets_report.txt`); every literal fell in a zone.
+165 lines of Renut rewritten (`out/renut_map/offsets_report.txt`); every literal fell in a zone. Three of them were
+not fields but 64-byte chunk boundaries of the replay's delta compare and census (`backend/queued.cpp`
+`kDeltaPrivateUnreadEnd`, two lines of `render/draw.cpp`: 11776), caught by queued.cpp's static assertions: put
+back to 11776, still the last boundary before Katamari's vertex declaration (+11812).
 
 ### Guest data (`tools/renut_data_refs.py`)
 

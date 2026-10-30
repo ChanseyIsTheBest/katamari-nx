@@ -207,3 +207,14 @@
 # lis/addi that builds a jump table base 0x14 bytes before the cases, right after the bctr, for a callback: they are
 # case code of their parent), and the gap-sweep entries 0x82244070, 0x82462554, 0x824627AC, 0x8271D1CC, 0x8271D1D0,
 # 0x8271D204, 0x8271D210 (blocks inside a parent the scanner had not reached: their parents branch across them).
+
+# katamari-nx (2026-10-30, the first boot with the gap sweep: "exception C000001D" in sub_8222E438): a dispatch through
+# a table of four function starts (0x82A196A8: 0x8222E460, 0x8222E530, 0x8222E578, 0x8222E530) indexed by the word at
+# 0x82B095E0 (lwz r10; rlwinm r10,r10,2,0,29; lwzx r11,r10,r11; mtctr r11; bctr). The generator made it a switch on
+# the loaded address (r11) with cases 0-3, so every call fell to the trap. As a table on r10 (the index already times
+# 4): the four targets at 0, 4, 8 and 12, the labels between them never taken. tools/switch_check.py listed it under
+# "no bound in the code"; the six others there switch on their index registers.
+[[switch_tables]]
+address = 0x8222E454
+register = 10
+labels = [0x8222E460, 0x8222E460, 0x8222E460, 0x8222E460, 0x8222E530, 0x8222E530, 0x8222E530, 0x8222E530, 0x8222E578, 0x8222E578, 0x8222E578, 0x8222E578, 0x8222E530]
