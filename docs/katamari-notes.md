@@ -394,7 +394,7 @@ background softened as the game intends. banjo-nx (MSAA off) does not hit it; th
 ## DLC (2026-10-31)
 
 The user's 16 DLC packs (`Beautiful_Katamari.rar`: Xbox 360 `LIVE` packages, title 4E4D07DC, content type 2, in the
-usual `content/0000000000000000/4E4D07DC/00000002/` layout; extracted to `D:eautifulkatamari\dlc`, flat). The SDK's
+usual `content/0000000000000000/4E4D07DC/00000002/` layout; extracted to `D:\beautifulkatamari\dlc`, flat). The SDK's
 content manager lists marketplace content from `<user data>/renut/0000000000000000/4E4D07DC/00000002/` as unpacked
 folders; reNut upstream's installer (`renut_engine/dlc_install.cpp`, game-agnostic: the running title's type-2 packages
 only; banjo-nx uses it) unpacks the packages in a `dlc` folder next to the NRO at the first start
