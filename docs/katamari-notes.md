@@ -307,7 +307,11 @@ Diagnostics of the blur (2026-10-30 afternoon; each a 330-400 s emulator run to 
 So no banjo-nx optimisation causes it. The multisampled depth resolve's deko3d GLSL is right
 (`texelFetch(sampler2DMS(...), coord, 0)`), and the same HLSL is right on the PC's Vulkan path. Left: plume's deko3d
 handling of multisampled depth images, or the emulator's (Ryujinx's) sampling of them; the console decides
-(PACKAGE_NOTES: "look at the practice room"). emu8_opengl runs the same on Ryujinx's OpenGL back end to separate them.
+(PACKAGE_NOTES: "look at the practice room"). `emu9_opengl_long` (Ryujinx's OpenGL back end, 900 s to reach the
+room): just as soft. So it is not one emulator back end's; it is this port's deko3d path or Ryujinx's GPU emulation
+that both back ends share. Not separable without the console. If the console is sharp, nothing to fix in the port;
+if it is soft too, next: compare the depth-of-field draws' bound textures between the PC and the Switch (a per-draw
+trace of the post-processing), starting with the multisampled depth resolve's float target.
 
 ### The emulator A/B (2026-10-30)
 
