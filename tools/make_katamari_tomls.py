@@ -43,14 +43,29 @@ SHIPPED = {
     # N&B's forwarder: Beautiful Katamari's forwarder has its own program id (README.txt, "Four cores").
     'banjo_forwarder_program_id': '"05D6EA1333487100"',
     'banjo_shader_misses': '"sdmc:/switch/katamari-nx/shader_misses"',
+    # Katamari's hand-written natives (docs/katamari-notes.md, "Hot functions"); the localized copies' keys
+    # (banjo_cpu_native_sub_*) default to on. banjo-nx's direct dispatch (no guard) stays as it ships.
+    'katamari_hand_matrix_copy': 'true',
+    'katamari_hand_matrix_multiply': 'true',
+    'katamari_hand_matrix_translation': 'true',
 }
 PLAY = {'banjo_renut_diag_resolve_trace': 'false', 'banjo_renut_diag_gpu_shaders': 'false',
         'banjo_renut_diag_terrain': 'false'}
-AB = {'banjo_renut_ab_targets': '"45,48,46,47,50,1"', 'banjo_renut_ab_s': '30', 'banjo_renut_dynamic_resolution': 'false'}
+# The targets that act on Beautiful Katamari's draws (direct calls, no command-buffer recordings: the census of
+# docs/katamari-notes.md): the fast draw (25), pipelines by content (28), whole-buffer copies (22), the setters' touch
+# compare (26), merged draws (33), mesh objects (42); 1 (a Vulkan-only key) is the do-nothing control on the Switch.
+# The record-time items (45-50) have nothing to act on here. Katamari's CPU targets: 69 the hand-written matrix
+# natives, 70 the localized copies of the hot functions (both back to the generated code in their off half).
+# 9 targets x 60 s = 9 minutes a round: 27+ minutes.
+AB = {'banjo_renut_ab_targets': '"25,28,22,26,33,42,69,70,1"', 'banjo_renut_ab_s': '30',
+      'banjo_renut_dynamic_resolution': 'false'}
 VERIFY = {k: 'true' for k in (
     'banjo_renut_fast_draw_verify', 'banjo_renut_resource_objects_verify', 'banjo_renut_fetch_cache_verify',
     'banjo_renut_whole_buffers_verify', 'banjo_renut_persistent_shared_verify', 'banjo_renut_chain_reuse_verify',
     'banjo_renut_snapshot_deltas_verify', 'banjo_renut_store_cards_verify', 'banjo_renut_record_extents_verify')}
+# The CPU natives' guard (banjo_hot_guest.cpp): each thread's first 4000 calls of every native compared with the
+# generated original, then one in 64 ("[hot] DIFFERENCE" lines; the 10-s "[hot]" report counts the checks).
+VERIFY.update({'banjo_hot_guard_calls': '4000', 'banjo_hot_guard_period': '64'})
 CONFIGS = {
     'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
                                   'must count 0 differences)'),
@@ -64,12 +79,19 @@ CONFIGS = {
 
 
 def apply(text, keys):
+    """Sets each key: in place where the base has it at the top level, else before the first [section] (banjo-nx's
+    [input_p1] / [input_p2] stay last: a key after a table header belongs to that table)."""
+    first_section = re.search(r'^\[', text, re.M)
+    top_end = first_section.start() if first_section else len(text)
     for k, v in keys.items():
         pat = re.compile(r'^(\s*)' + re.escape(k) + r'\s*=.*$', re.M)
-        if pat.search(text):
-            text = pat.sub(lambda m: f'{m.group(1)}{k} = {v}', text, count=1)
+        m = pat.search(text, 0, top_end)
+        if m:
+            text = text[:m.start()] + f'{m.group(1)}{k} = {v}' + text[m.end():]
         else:
-            text = text.rstrip('\n') + f'\n{k} = {v}\n'
+            text = text[:top_end].rstrip('\n') + f'\n{k} = {v}\n\n' + text[top_end:]
+        first_section = re.search(r'^\[', text, re.M)
+        top_end = first_section.start() if first_section else len(text)
     return text
 
 

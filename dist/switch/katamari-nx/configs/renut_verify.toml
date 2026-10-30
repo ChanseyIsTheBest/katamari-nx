@@ -271,8 +271,8 @@ banjo_cpu_native_bulk = true
 # The copies' self-check (the guard) is off: every hook calls its copy directly, with no countdown to the next checked
 # call (bejeweled3-nx's direct dispatch). configs/banjo_hot_guard_on.toml puts the guard back (the first 64 calls of
 # each thread and then 1 in 4096 run both versions and compare; a difference switches that copy off and is logged).
-banjo_hot_guard_calls = 0
-banjo_hot_guard_period = 0
+banjo_hot_guard_calls = 4000
+banjo_hot_guard_period = 64
 
 # Hand-written natives (2026-10-14; CPU group; docs/enhancements.md): the game's C runtime memcpy and memset and four
 # Direct3D writers (the two shader-constant writers and the two writers of the state flush) as native code written by
@@ -581,6 +581,21 @@ banjo_renut_diag_terrain = true
 # (no guard): the first update package's console session compared 215,000 calls of its 512 copies with the
 # game's own code under the guard and found 0 differences (2026-10-29; the user: guard off from then on).
 # renut_guard.toml is this file with the guard on (banjo_hot_guard_calls / banjo_hot_guard_period), for a check.
+renut_shadow_resolution = "1x"
+renut_ambient_occlusion = "Half"
+katamari_hand_matrix_copy = true
+katamari_hand_matrix_multiply = true
+katamari_hand_matrix_translation = true
+banjo_renut_fast_draw_verify = true
+banjo_renut_resource_objects_verify = true
+banjo_renut_fetch_cache_verify = true
+banjo_renut_whole_buffers_verify = true
+banjo_renut_persistent_shared_verify = true
+banjo_renut_chain_reuse_verify = true
+banjo_renut_snapshot_deltas_verify = true
+banjo_renut_store_cards_verify = true
+banjo_renut_record_extents_verify = true
+
 [input_p1]
 a = ""
 b = ""
@@ -616,14 +631,3 @@ up = ""
 down = ""
 left = ""
 right = ""
-renut_shadow_resolution = "1x"
-renut_ambient_occlusion = "Half"
-banjo_renut_fast_draw_verify = true
-banjo_renut_resource_objects_verify = true
-banjo_renut_fetch_cache_verify = true
-banjo_renut_whole_buffers_verify = true
-banjo_renut_persistent_shared_verify = true
-banjo_renut_chain_reuse_verify = true
-banjo_renut_snapshot_deltas_verify = true
-banjo_renut_store_cards_verify = true
-banjo_renut_record_extents_verify = true

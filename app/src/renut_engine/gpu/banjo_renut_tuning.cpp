@@ -904,6 +904,9 @@ const char *AbName(int target) {
   case 66: return "resolve host levels made at their first read (banjo_renut_lazy_resolve_mips, from sa2-nx)";  // 2026-10-28
   case 67: return "whole clears of a target holding that clear already not sent (banjo_renut_clear_repeat, from sa2-nx)";
   case 68: return "no pipeline read for the provisional check while none is provisional (banjo_deko3d_provisional_count)";
+  // katamari-nx (2026-10-30): Beautiful Katamari's CPU items (cpu/hot/banjo_hand_natives.h, cpu/banjo_hot_guest.h).
+  case 69: return "Katamari's hand-written matrix natives (katamari_hand_matrix_*; off half: the generated copies)";
+  case 70: return "the localized copies of the hot functions (localized.txt; off half: the generated originals)";
   default: return "none";
   }
 }

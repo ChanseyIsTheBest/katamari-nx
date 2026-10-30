@@ -98,8 +98,21 @@ set(RENUT_SOURCES
     # the start-up check of every instruction form that only one processor has.
     src/cpu/banjo_codegen_checks.cpp
     src/cpu/banjo_forms_selfcheck.cpp
-    # katamari-nx: the native copies of hot game functions (banjo_hot_guest.cpp and its shards) come back with this
-    # game's profile (docs/katamari-notes.md, "Hot functions").
+    # katamari-nx: the native copies of hot game functions (banjo_hot_guest.cpp and its shards), from this game's PC
+    # profile (docs/katamari-notes.md, "Hot functions"): src/cpu/hot/localized.txt and hand.txt.
+    src/cpu/banjo_hot_guest.cpp
+    src/cpu/banjo_hot_shard_0.cpp
+    src/cpu/banjo_hot_shard_1.cpp
+    src/cpu/banjo_hot_shard_2.cpp
+    src/cpu/banjo_hot_shard_3.cpp
+    src/cpu/banjo_hot_shard_4.cpp
+    src/cpu/banjo_hot_shard_5.cpp
+    src/cpu/banjo_hot_shard_6.cpp
+    src/cpu/banjo_hot_shard_7.cpp
+    src/cpu/banjo_hot_shard_8.cpp
+    src/cpu/banjo_hot_shard_9.cpp
+    src/cpu/banjo_hot_shard_10.cpp
+    src/cpu/banjo_hot_shard_11.cpp
     src/profiler/banjo_pc_profiler.cpp
     # PNG captures of the presented game image (nfsmw_captura_cada_s), from nfsmw-nx: for testing.
     src/native/nfsmw_nativo_captura.cpp

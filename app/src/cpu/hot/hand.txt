@@ -1,1 +1,16 @@
-# katamari-nx: empty until this game's profile (docs/katamari-notes.md, "Hot functions").
+# katamari-nx: guest functions with a HAND-WRITTEN native (app/src/cpu/hot/banjo_hand_natives.h, namespace
+# banjo::hand::n_<id>; Katamari's are at the end of that file). tools/localize_native.py puts each in front of the
+# generated copy of its function wherever that copy is used (banjo-nx's docs/enhancements.md, "Hand-written natives").
+#
+#   <address or generated name> [id=<namespace suffix>] [exact=<registers>]
+#
+# exact: registers the original writes that the native leaves exactly as the original does. Katamari's matrix natives
+# write every register their originals write (nothing skipped by the guard); the memset is banjo-nx's (scratch r0,
+# r4-r6 not reproduced, as there).
+# Chosen 2026-10-30 from the PC profile out/pc_runs/renut4 (docs/katamari-notes.md, "Hot functions").
+
+82759C98 exact=f0   # 4x4 matrix copy (PC rank 1: 5.2 % of busy samples)
+827598C0 exact=r8,r9,r10,r11,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v29,v30,v31   # 4x4 matrix multiply in place (rank 2)
+82759780 exact=r8,r9,r10,r11,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v29,v30,v31   # 4x4 matrix multiply, three operands (rank 11)
+82759D20 exact=r11,f0,f13   # translation matrix (rank 20)
+827E7A40   # C runtime memset (banjo-nx's native: the same instructions)

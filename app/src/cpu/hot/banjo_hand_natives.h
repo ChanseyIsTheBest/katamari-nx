@@ -47,10 +47,29 @@
 
 #include "cpu/banjo_hot_common.h"
 
+// katamari-nx: the in-run A/B's target in its off half (renut_engine/gpu/banjo_renut_tuning.cpp).
+#include <atomic>
+namespace banjo::renut_gpu {
+extern std::atomic<int> g_ab_off;
+}  // namespace banjo::renut_gpu
+
 namespace banjo::hand {
 
 // The natives' own keys (banjo_hot_guest.cpp), each read once: 0 not read yet, 1 off, 2 on.
-enum : uint32_t { kMemcpy = 0, kMemset = 1, kConstants = 2, kFlush = 3, kAudioFilter = 4, kXAudioMix = 5, kNatives = 6 };
+// katamari-nx: kMatCopy / kMatMul / kMatTranslation are Beautiful Katamari's (the end of this file); kMemset serves its
+// C runtime memset too. N&B's other natives stay for reference: hand.txt does not list them here, so they never compile.
+enum : uint32_t {
+  kMemcpy = 0,
+  kMemset = 1,
+  kConstants = 2,
+  kFlush = 3,
+  kAudioFilter = 4,
+  kXAudioMix = 5,
+  kMatCopy = 6,
+  kMatMul = 7,
+  kMatTranslation = 8,
+  kNatives = 9
+};
 extern uint8_t g_state[kNatives];
 uint8_t Init(uint32_t which);
 [[gnu::always_inline]] inline bool On(uint32_t which) {
@@ -723,5 +742,248 @@ template <class S>
 }
 
 }  // namespace n_rex_XAudioMixFrameBufferChannel
+
+// ---------------------------------------------------------------------------------------------------------------------
+// katamari-nx (2026-10-30): Beautiful Katamari's hand-written natives. Chosen from the PC sampling profile of title,
+// menus, intro and the first gameplay (docs/katamari-notes.md, "Hot functions"): the hottest guest functions that are
+// pure data transforms, whose result can be written exactly from what the generated code does. The tree walkers of
+// ranks 3-5 (virtual calls, a scene graph) are left to the localized copies (localized.txt).
+//
+// Every one reproduces EVERY register its original writes (hand.txt: exact= names all of them), so the guard compares
+// everything, and calls the same flush-mode switch at the same point. They decline (the generated copy runs) where
+// the generated code's result is not a plain copy: a single-precision signalling NaN (the generated lfs / stfs pair
+// widens to double and back, which quiets it on both hosts), a destination ahead of an overlapping source, a range
+// that is not one stretch of memory.
+
+namespace katamari {
+
+// The in-run A/B's target 69 (renut_engine/gpu/banjo_renut_tuning.cpp) sends Katamari's natives back to the generated
+// copies for its off half.
+[[gnu::always_inline]] inline bool KOn(uint32_t which) {
+  return On(which) && ::banjo::renut_gpu::g_ab_off.load(std::memory_order_relaxed) != 69;
+}
+
+// A guest float word (big-endian in memory) that the generated code's float -> double -> float would change: a
+// signalling NaN (exponent all ones, quiet bit clear, mantissa not zero).
+[[gnu::always_inline]] inline bool Snan(uint32_t w) { return (w & 0x7FC00000u) == 0x7F800000u && (w & 0x003FFFFFu); }
+
+[[gnu::always_inline]] inline uint32_t LoadW(const uint8_t* p) {
+  uint32_t w;
+  std::memcpy(&w, p, 4);
+  return __builtin_bswap32(w);
+}
+
+[[gnu::always_inline]] inline double WidenF(uint32_t w) {
+  float f;
+  std::memcpy(&f, &w, 4);
+  return double(f);
+}
+
+// A 16-byte guest vector at any address into the register layout of the generated code (the lvlx + lvrx + vor of an
+// unaligned load, or one lvx: u8[15 - i] = byte i), and back (stvlx + stvrx: byte i = u8[15 - i]).
+[[gnu::always_inline]] inline simde__m128i Reverse16(simde__m128i v) {
+  return simde_mm_shuffle_epi8(v, simde_mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15));
+}
+[[gnu::always_inline]] inline simde__m128i LoadV(const uint8_t* p) {
+  return Reverse16(simde_mm_loadu_si128(reinterpret_cast<const simde__m128i*>(p)));
+}
+[[gnu::always_inline]] inline void StoreV(uint8_t* p, simde__m128i v) {
+  simde_mm_storeu_si128(reinterpret_cast<simde__m128i*>(p), Reverse16(v));
+}
+[[gnu::always_inline]] inline simde__m128i Dp(simde__m128i a, simde__m128i b) {
+  return simde_mm_castps_si128(simde_mm_dp_ps(simde_mm_castsi128_ps(a), simde_mm_castsi128_ps(b), 0xFF));
+}
+[[gnu::always_inline]] inline void PutV(PPCVRegister& r, simde__m128i v) {
+  simde_mm_store_si128(reinterpret_cast<simde__m128i*>(r.u8), v);
+}
+
+// The 4x4 multiply of sub_827598C0 / sub_82759780 (the same 76 instructions, the first operand's address in r3 or
+// r5): rows a0..a3 of the first matrix (transposed in registers by vmrghw / vmrglw), rows b0..b3 of the second,
+// sixteen vmsum4fp128 (simde_mm_dp_ps, mask 0xFF, as the generated code computes them) and the result's rows stored to
+// r3. All eight loads come before the first store, as in the original (in-place calls are fine). Every register the
+// original writes is written with the value it leaves.
+template <class S>
+[[gnu::always_inline]] inline bool MatMul(PPCContext& __restrict ctx, uint8_t* base, S& s, uint32_t a_va,
+                                          uint32_t which) {
+  if (!KOn(which)) [[unlikely]] return false;
+  const uint32_t dst = ctx.r3.u32, b_va = ctx.r4.u32;
+  if (!detail::Straight(dst, 64) || !detail::Straight(a_va, 64) || !detail::Straight(b_va, 64)) [[unlikely]]
+    return false;
+  s.Hand(which, 64);
+  const uint8_t* pa = ::banjo::hot::Raw(base, a_va);
+  const uint8_t* pb = ::banjo::hot::Raw(base, b_va);
+  // The generated statements, in their order, on locals (vmrghw vD,vA,vB = unpackhi_epi32(vB, vA) in this layout).
+  simde__m128i v12 = LoadV(pa), v11 = LoadV(pa + 16), v10 = LoadV(pa + 32), v9 = LoadV(pa + 48);
+  simde__m128i v0 = LoadV(pb), v13 = LoadV(pb + 16);
+  simde__m128i v8 = simde_mm_unpackhi_epi32(v10, v12);
+  simde__m128i v6 = simde_mm_unpacklo_epi32(v10, v12);
+  simde__m128i v7 = simde_mm_unpackhi_epi32(v9, v11);
+  simde__m128i v5 = simde_mm_unpacklo_epi32(v9, v11);
+  v12 = LoadV(pb + 32);
+  v11 = LoadV(pb + 48);
+  v10 = simde_mm_unpackhi_epi32(v7, v8);
+  v9 = simde_mm_unpackhi_epi32(v5, v6);
+  v8 = simde_mm_unpacklo_epi32(v7, v8);
+  v7 = simde_mm_unpacklo_epi32(v5, v6);
+  ctx.fpscr.enableFlushMode();
+  v6 = Dp(v0, v10);
+  simde__m128i v3 = Dp(v0, v9);
+  simde__m128i v1 = Dp(v0, v8);
+  v0 = Dp(v0, v7);
+  v5 = Dp(v13, v10);
+  simde__m128i v2 = Dp(v13, v9);
+  const simde__m128i v31 = Dp(v13, v8);
+  v13 = Dp(v13, v7);
+  simde__m128i v4 = Dp(v12, v10);
+  const simde__m128i v30 = Dp(v12, v7);
+  const simde__m128i v29 = Dp(v12, v8);
+  v12 = Dp(v12, v9);
+  v7 = Dp(v11, v7);
+  v8 = Dp(v11, v8);
+  v9 = Dp(v11, v9);
+  v11 = Dp(v11, v10);
+  v10 = simde_mm_unpackhi_epi32(v3, v6);
+  v0 = simde_mm_unpackhi_epi32(v0, v1);
+  v6 = simde_mm_unpackhi_epi32(v2, v5);
+  v0 = simde_mm_unpackhi_epi32(v0, v10);
+  v13 = simde_mm_unpackhi_epi32(v13, v31);
+  v5 = simde_mm_unpackhi_epi32(v30, v29);
+  v12 = simde_mm_unpackhi_epi32(v12, v4);
+  v13 = simde_mm_unpackhi_epi32(v13, v6);
+  v10 = simde_mm_unpackhi_epi32(v7, v8);
+  v12 = simde_mm_unpackhi_epi32(v5, v12);
+  v11 = simde_mm_unpackhi_epi32(v9, v11);
+  v11 = simde_mm_unpackhi_epi32(v10, v11);
+  if (!s.Note(dst, 64)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, 64);
+  uint8_t* d = ::banjo::hot::Raw(base, dst);
+  StoreV(d, v0);
+  StoreV(d + 16, v13);
+  StoreV(d + 32, v12);
+  StoreV(d + 48, v11);
+  ctx.r8.s64 = 64;
+  ctx.r9.s64 = 16;
+  ctx.r10.s64 = 32;
+  ctx.r11.s64 = ctx.r3.s64 + 64;
+  PutV(ctx.v0, v0);
+  PutV(ctx.v1, v1);
+  PutV(ctx.v2, v2);
+  PutV(ctx.v3, v3);
+  PutV(ctx.v4, v4);
+  PutV(ctx.v5, v5);
+  PutV(ctx.v6, v6);
+  PutV(ctx.v7, v7);
+  PutV(ctx.v8, v8);
+  PutV(ctx.v9, v9);
+  PutV(ctx.v10, v10);
+  PutV(ctx.v11, v11);
+  PutV(ctx.v12, v12);
+  PutV(ctx.v13, v13);
+  PutV(ctx.v29, v29);
+  PutV(ctx.v30, v30);
+  PutV(ctx.v31, v31);
+  return true;
+}
+
+}  // namespace katamari
+
+// sub_82759C98 - a 4x4 float matrix copy: r3 = destination, r4 = source; sixteen lfs f0 / stfs f0 pairs, word by
+// word upward (the hottest guest function of the PC profile: 5.2 % of every busy sample, called for each matrix the
+// game copies). Here: the 64 bytes as they are (a word copy upward is memmove's result for dst <= src). f0 ends as
+// the last word widened, as the original leaves it. Declined: a destination ahead of an overlapping source (the
+// original then copies words it already wrote), a signalling NaN among the words (the generated widening quiets it).
+namespace n_82759C98 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, [[maybe_unused]] S& s) {
+  if (!katamari::KOn(kMatCopy)) [[unlikely]] return false;
+  const uint32_t dst = ctx.r3.u32, src = ctx.r4.u32;
+  if (uint32_t(dst - src - 1u) < 63u) [[unlikely]] return false;  // dst > src, dst - src < 64
+  if (!detail::Straight(dst, 64) || !detail::Straight(src, 64)) [[unlikely]] return false;
+  const uint8_t* p = ::banjo::hot::Raw(base, src);
+  uint32_t nan = 0;
+  for (uint32_t k = 0; k < 16; ++k) nan |= uint32_t(katamari::Snan(katamari::LoadW(p + 4 * k)));
+  if (nan) [[unlikely]] return false;
+  s.Hand(kMatCopy, 64);
+  ctx.fpscr.disableFlushMode();
+  const double last = katamari::WidenF(katamari::LoadW(p + 60));
+  if (!s.Note(dst, 64)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, 64);
+  detail::CopySmall(::banjo::hot::Raw(base, dst), p, 64);
+  ctx.f0.f64 = last;
+  return true;
+}
+
+}  // namespace n_82759C98
+
+// sub_827598C0 - 4x4 matrix multiply in place: r3 = r3 x r4 (first operand at r3). katamari::MatMul above.
+namespace n_827598C0 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  return katamari::MatMul(ctx, base, s, ctx.r3.u32, kMatMul);
+}
+
+}  // namespace n_827598C0
+
+// sub_82759780 - the same multiply with three operands: r3 = r5 x r4. katamari::MatMul above.
+namespace n_82759780 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  return katamari::MatMul(ctx, base, s, ctx.r5.u32, kMatMul);
+}
+
+}  // namespace n_82759780
+
+// sub_82759D20 - a translation matrix: r3 = identity with the last row (x, y, z, 1) from the three floats at r4. The
+// original loads 1.0 and 0.0 from the image's constants (0x82000B38 / 0x82000B34: read here too, not assumed) and
+// stores through f13 / f0, so f13 = the one, f0 = z widened and r11 = 0x82000000 (sign-extended) at its end.
+// Declined: a signalling NaN among the five words, a destination that overlaps the three source floats (the original
+// interleaves those loads with its stores).
+namespace n_82759D20 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, [[maybe_unused]] S& s) {
+  if (!katamari::KOn(kMatTranslation)) [[unlikely]] return false;
+  const uint32_t dst = ctx.r3.u32, src = ctx.r4.u32;
+  if (!detail::Straight(dst, 64) || !detail::Straight(src, 12)) [[unlikely]] return false;
+  if (uint32_t(src - dst) < 64u || uint32_t(dst - src) < 12u) [[unlikely]] return false;
+  if (uint32_t(0x82000B34u + 7u - dst) < 64u + 7u) [[unlikely]] return false;  // dst covers the two constants
+  const uint32_t one = katamari::LoadW(::banjo::hot::Raw(base, 0x82000B38u));
+  const uint32_t zero = katamari::LoadW(::banjo::hot::Raw(base, 0x82000B34u));
+  const uint8_t* p = ::banjo::hot::Raw(base, src);
+  const uint32_t x = katamari::LoadW(p), y = katamari::LoadW(p + 4), z = katamari::LoadW(p + 8);
+  if (katamari::Snan(one) | katamari::Snan(zero) | katamari::Snan(x) | katamari::Snan(y) | katamari::Snan(z))
+    [[unlikely]] return false;
+  s.Hand(kMatTranslation, 64);
+  ctx.fpscr.disableFlushMode();
+  // Each word goes out as float(double(float)) of its own bits: the same bits for every value but a signalling NaN.
+  const uint32_t words[16] = {one, zero, zero, zero, zero, one, zero, zero, zero, zero, one, zero, x, y, z, one};
+  if (!s.Note(dst, 64)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, 64);
+  uint8_t* d = ::banjo::hot::Raw(base, dst);
+  for (uint32_t k = 0; k < 16; ++k) {
+    const uint32_t be = __builtin_bswap32(words[k]);
+    std::memcpy(d + 4 * k, &be, 4);
+  }
+  ctx.r11.s64 = -2113929216;
+  ctx.f13.f64 = katamari::WidenF(one);
+  ctx.f0.f64 = katamari::WidenF(z);
+  return true;
+}
+
+}  // namespace n_82759D20
+
+// sub_827E7A40 - Beautiful Katamari's XDK C runtime memset: the same 40 instructions as banjo-nx's sub_82C116F0
+// (compared word for word, 2026-10-30), so the same native (n_82C116F0 above) under the banjo_hand_memset key.
+namespace n_827E7A40 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  return n_82C116F0::Native(ctx, base, s);
+}
+
+}  // namespace n_827E7A40
 
 }  // namespace banjo::hand

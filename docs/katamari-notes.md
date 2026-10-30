@@ -163,8 +163,8 @@ back to 11776, still the last boundary before Katamari's vertex declaration (+11
   `DeviceDeclarationLocked`, from peggle2-nx, at +0x2F98) and five run-time shaders captured, two of which pass the
   fog interpolator Renut's XenosRecomp did not declare (fixed: `{ Fog, 0 }` appended to its interpolators).
 - `renut3` (visible window): 60 frames a second by vsync, render thread 0.3-0.5 ms and GPU 1.4-3.2 ms a frame, no
-  draw dropped, no shader missing: the boot screen (the Prince on white), the save menu ("New Game", the button
-  prompts), the "Start a new game?" dialog, all drawn as expected.
+  draw dropped, no shader missing: the boot screen (the Prince on white), the save menu (its entries and the button
+  prompts), the new-game confirmation dialog, all drawn as expected.
 
 ### What the game decides (porting-guide-renderer.md section 2; census of the menus, gameplay to follow)
 
@@ -197,3 +197,59 @@ that reads a GPU result on the CPU (auto-exposure, glare visibility) gets 0. sas
 Katamari locks resolve destinations on the CPU (log Renut's `LockSurface` on resolve destinations). plume's four
 deko3d fixes of the same message (Zcull invalidate braces, MSAA sample positions, alpha-to-coverage dither,
 primitive restart) are already in this tree's plume (copied from banjo-nx).
+
+## Hot functions (2026-10-30, from the PC profile)
+
+Profile: `out/pc_runs/renut4/pc_profile.log` (banjo-nx's PC sampler, 1000 Hz, seven 60-s windows of a visible run:
+boot, save menu, new game, the King's intro, the controls tutorial). Ranked by
+`<scratchpad>/hot_list.py` (each thread's top 30 per window summed; shares are of every busy sample of every thread).
+In gameplay (windows 4-7) the main thread's top guest functions are a 4x4 matrix copy (5.2 % of all busy samples), a
+VMX 4x4 matrix multiply (2.8 %), a bounding-volume visibility test (2.3 %), a scene-graph walk (2.2 %); the audio
+thread's top is a mixer loop (0.9 %).
+
+Hand-written natives (`app/src/cpu/hot/hand.txt`, code at the end of `banjo_hand_natives.h`), chosen where the
+function is a pure data transform that can be written EXACTLY from the generated code (the guard compares them with
+the generated original in verify mode):
+
+| Function | What | Native |
+|---|---|---|
+| sub_82759C98 (rank 1) | 4x4 float matrix copy, 16 lfs / stfs | 64 bytes moved as they are; f0 as left; declines a signalling NaN (the generated widening quiets it) and a forward overlap |
+| sub_827598C0 (rank 2) | 4x4 matrix multiply in place (vmsum4fp128 x 16) | the same simde dot products on locals; rows loaded / stored once; every register the original writes is written |
+| sub_82759780 (rank 11) | the same multiply with three operands | the same template (first operand at r5) |
+| sub_82759D20 (rank 20) | translation matrix from three floats | 16 words at once; 1.0 / 0.0 read from the image's constants |
+| sub_827E7A40 | C runtime memset | banjo-nx's (sa2-nx's) native: the routine is the same 40 instructions |
+
+Keys: `katamari_hand_matrix_copy`, `katamari_hand_matrix_multiply`, `katamari_hand_matrix_translation`,
+`banjo_hand_memset`. Ranks 3-5 (the visibility test, two scene-graph walks with virtual calls) are left to the
+machine-optimised copies: their value is in the register hand-over and the inlined callees, which the copy tool does.
+
+Machine-optimised: `app/src/cpu/hot/localized.txt` lists the 5 hooks of the natives and the next 100 functions of the
+profile (tools/localize_native.py: registers in locals, write-backs of changed registers only, small callees inlined,
+direct dispatch). The bulk list stays empty: it is made from console profiles (tools/switch_hot_bulk.py).
+
+## The Switch build in Ryujinx (2026-10-30)
+
+First NRO (`app/out/switch/renut.nro`, 47.9 MB; deko3d only, NVK not linked), the user's patched Ryubing with this
+port's own data folder (`D:\New folder\ryu-data\katamari`: banjo's system folders, keys and firmware; its own SD card),
+`tools/run_ryujinx.ps1`, configs/renut_verify.toml plus the scripted pad and a capture every 15 s.
+
+Run `emu1` (300 s, every Renut verify key on): boot, save probe, the story intro (sky and subtitles), the King's
+throne scene, the first tutorial dialogue: every capture drawn as on the PC (compared with the PC run's captures at
+the same scenes: the same layout, colours, the depth-of-field blur on the Prince, the dialogue box). 52-60 game frames
+a second in the emulator after loading (the first 10 s 36 fps while the first shaders compile), render thread
+1.6-1.9 ms a frame. Verify counters: store cards 0 changed under clean cards, fetch cache 0 differ, XMA frame cache
+0 differ. Six `banjo_renut_fast_draw_verify` lines, all with the same pipeline KEY and a different pipeline object:
+the kept pipeline was a provisional one (a stage still on its generic variant while uam compiles the specialised one
+in the background; banjo-nx's docs/deko3d-renderer.md: the same pixels by construction). Fix for the package: the
+prebuilt DKSH cache below, so nothing is provisional.
+
+Found and fixed:
+- 13 shaders the game builds at run time were not in the cache (draws with them were skipped until the next build):
+  captured on the SD card, added to `out/renut_shader_dump` (now 129) and to the PC build's capture folder; the Switch
+  shader package rebuilt (`tools/switch_shaders.ps1`: all 129 compile).
+- The DKSH cache `deko3d_shaders.bin` (`tools/deko3d_variant_cache.py --generic --list <SD pipeline_list.bin>
+  --runtime-log <emu1 log> --merge <SD cache>`): 206 pipelines, 181 stage variants, 3.1 MB, 0 failed. Shipped next to
+  the NRO (it is compiled shader code made by this port's tools; it is not committed).
+
+Saves: the game probes `SAVE:` before creating its save (the open fails, then XamContentCreate with mode 4 creates
+it), as on the PC: not an error.

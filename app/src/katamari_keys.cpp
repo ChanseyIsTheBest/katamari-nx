@@ -19,17 +19,8 @@ REXCVAR_DEFINE_BOOL(banjo_native_xaudio_src, false, "Katamari/Not built", "N&B's
 REXCVAR_DEFINE_BOOL(banjo_native_xaudio_src_verify, false, "Katamari/Not built", "Verify mode of the above (not in this port)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
-// N&B's hand-written natives (cpu/hot/banjo_hand_natives.h, at N&B's addresses). Katamari's own come with its profile.
-REXCVAR_DEFINE_BOOL(banjo_hand_memcpy, false, "Katamari/Not built", "N&B's hand-written memcpy (not in this port)")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(banjo_hand_memset, false, "Katamari/Not built", "N&B's hand-written memset (not in this port)")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(banjo_hand_constants, false, "Katamari/Not built", "N&B's hand-written constants push (not in this port)")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(banjo_hand_state_flush, false, "Katamari/Not built", "N&B's hand-written state flush (not in this port)")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(banjo_hot_count, false, "Katamari/Not built", "Call counts of the native copies (not in this port yet)")
-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+// The hand-written natives' keys and banjo_hot_count are cpu/banjo_hot_guest.cpp's (Katamari's natives: memset and the
+// matrix routines, cpu/hot/banjo_hand_natives.h).
 
 // renut_engine/hooks.cpp's MSAA switch, which Renut's renderer reads (render/surfaces and the tuning): N&B's own key.
 // Katamari's MSAA is what the game asks for.
@@ -53,21 +44,8 @@ REXCVAR_DEFINE_BOOL(banjo_d3d_native_draw_vertices, false, "Katamari/Not built",
 // here (d3d/hooks/draw.cpp); the captures' video waits on it.
 std::atomic<uint64_t> g_banjo_game_frames{0};
 
-// cpu/banjo_hot_guest.cpp's walk over the native copies' keys (the enhancement table lists them) and its 10 s report
-// (Renut's tuning calls it): no copies yet.
-namespace banjo::hot {
-void ForEachKey(void (*)(void* user, const char* key, bool own), void*) {}
-void Report() {}
-}  // namespace banjo::hot
 
-// Whether the generated code marks the store cards (tools/store_cards.py, the last post-codegen step; the cards are
-// the first MB of the guest window, which the SDK reserves): Renut proves its cached copies by them only then
-// (banjo_renut_store_cards). As cpu/banjo_hot_guest.cpp says it.
-#if !defined(REX_STORE_CARDS_OFF)
-extern "C" const bool g_banjo_store_cards = true;
-#else
-extern "C" const bool g_banjo_store_cards = false;
-#endif
+// g_banjo_store_cards (whether the generated code marks the store cards) is cpu/banjo_hot_guest.cpp's again.
 
 // renut_engine/cvar_menu.cpp's toml writer (N&B's in-game settings menu, not built): the keyboard controls dialog
 // calls it after a rebind. Not written here: the toml a test or the user wrote stays as it is.

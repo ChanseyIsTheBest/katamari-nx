@@ -22,6 +22,12 @@
 
 #include "cpu/banjo_hot_common.h"
 
+// katamari-nx (2026-10-30): the in-run A/B's target in its off half (renut_engine/gpu/banjo_renut_tuning.cpp); target 70
+// sends every localized copy's hook to the generated original for that half.
+namespace banjo::renut_gpu {
+extern std::atomic<int> g_ab_off;
+}  // namespace banjo::renut_gpu
+
 namespace banjo::hot {
 
 enum : uint8_t { kUninit = 0, kOff = 1, kOn = 2, kCount = 3, kDirect = 4 };
@@ -115,6 +121,10 @@ void Report();
                    SLOT, &n_##ID::kSkip, BULK};                                                                  \
   }                                                                                                              \
   REX_HOOK_RAW(SYM) {                                                                                            \
+    if (banjo::renut_gpu::g_ab_off.load(std::memory_order_relaxed) == 70) [[unlikely]] {                         \
+      __imp__##SYM(ctx, base);                                                                                   \
+      return;                                                                                                    \
+    }                                                                                                            \
     banjo::hot::Hook& h = banjo::hot::g_hook_##ID;                                                               \
     uint8_t st = h.state.load(std::memory_order_relaxed);                                                        \
     if (st == banjo::hot::kDirect) [[likely]] {                                                                  \

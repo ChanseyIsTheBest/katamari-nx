@@ -37,3 +37,14 @@ Profiling
 ---------
 The ELF (katamari-nx.elf) and the source snapshot (source/) are the ones this NRO was built from: a console profile
 (rex_profile.log, switch_profile_stacks) maps to source lines with them.
+
+The CPU enhancements of this port (each with its key in renut.toml; all exact, all on)
+--------------------------------------------------------------------------------------
+katamari_hand_matrix_copy         hand-written native of the game's 4x4 matrix copy (the hottest guest function)
+katamari_hand_matrix_multiply     hand-written native of its two 4x4 matrix multiplies (in place, three operands)
+katamari_hand_matrix_translation  hand-written native of its translation-matrix builder
+banjo_hand_memset                 the C runtime memset (banjo-nx's native: the same routine)
+banjo_cpu_native_sub_*            the localized copies of the 100 hottest other functions (PC profile)
+In-run A/B: target 69 = the hand-written matrix natives, 70 = the localized copies (renut_ab.toml lists both).
+A guard compares a native with the generated original now and then (banjo_hot_guard_calls / _period); a difference
+switches that one native off and logs "[hot] DIFFERENCE".

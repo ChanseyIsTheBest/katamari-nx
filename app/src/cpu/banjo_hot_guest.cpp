@@ -127,23 +127,45 @@ REXCVAR_DEFINE_BOOL(banjo_hand_xaudio_mix, true, "Banjo/Enhancements",
                     "(one for the range); checked by the guard of the router's hook")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+// katamari-nx (2026-10-30): Beautiful Katamari's own hand-written natives (cpu/hot/banjo_hand_natives.h, the end).
+REXCVAR_DEFINE_BOOL(katamari_hand_matrix_copy, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's 4x4 matrix copy (sub_82759C98, the hottest guest function of "
+                    "the PC profile): the 64 bytes moved as they are instead of sixteen float loads and stores. "
+                    "Declines a signalling NaN and a forward overlap; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_matrix_multiply, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's two 4x4 matrix multiplies (sub_827598C0 in place, sub_82759780 "
+                    "with three operands): the same sixteen dot products on registers, each row loaded and stored once "
+                    "instead of the emulated unaligned vector loads and byte-by-byte stores; every register the "
+                    "original writes is written. Checked by the guards of the hooks that contain them")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_matrix_translation, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's translation-matrix builder (sub_82759D20): the 16 words "
+                    "written at once. Declines a signalling NaN and an overlap; checked by the guards of its hooks")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace banjo::hand {
 
 uint8_t g_state[kNatives] = {};
 
 namespace {
 constexpr const char* kNames[kNatives] = {"memcpy", "memset", "constant writers", "state flush writers",
-                                          "XAudio voice filter", "XAudio channel mix"};
+                                          "XAudio voice filter", "XAudio channel mix", "matrix copy",
+                                          "matrix multiplies", "translation matrix"};
 constexpr const char* kKeys[kNatives] = {"banjo_hand_memcpy", "banjo_hand_memset", "banjo_hand_constants",
                                          "banjo_hand_state_flush", "banjo_hand_audio_filter",
-                                         "banjo_hand_xaudio_mix"};
+                                         "banjo_hand_xaudio_mix", "katamari_hand_matrix_copy",
+                                         "katamari_hand_matrix_multiply", "katamari_hand_matrix_translation"};
 bool Own(uint32_t which) {
-  return which == kMemcpy        ? bool(REXCVAR_GET(banjo_hand_memcpy))
-         : which == kMemset      ? bool(REXCVAR_GET(banjo_hand_memset))
-         : which == kConstants   ? bool(REXCVAR_GET(banjo_hand_constants))
-         : which == kFlush       ? bool(REXCVAR_GET(banjo_hand_state_flush))
-         : which == kAudioFilter ? bool(REXCVAR_GET(banjo_hand_audio_filter))
-                                 : bool(REXCVAR_GET(banjo_hand_xaudio_mix));
+  return which == kMemcpy           ? bool(REXCVAR_GET(banjo_hand_memcpy))
+         : which == kMemset         ? bool(REXCVAR_GET(banjo_hand_memset))
+         : which == kConstants      ? bool(REXCVAR_GET(banjo_hand_constants))
+         : which == kFlush          ? bool(REXCVAR_GET(banjo_hand_state_flush))
+         : which == kAudioFilter    ? bool(REXCVAR_GET(banjo_hand_audio_filter))
+         : which == kXAudioMix      ? bool(REXCVAR_GET(banjo_hand_xaudio_mix))
+         : which == kMatCopy        ? bool(REXCVAR_GET(katamari_hand_matrix_copy))
+         : which == kMatMul         ? bool(REXCVAR_GET(katamari_hand_matrix_multiply))
+                                    : bool(REXCVAR_GET(katamari_hand_matrix_translation));
 }
 // banjo_hot_count: calls by size, bucket 0 = size 0, bucket k = sizes [2^(k-1), 2^k).
 std::atomic<uint64_t> g_sizes[kNatives][34];

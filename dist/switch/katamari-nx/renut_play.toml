@@ -581,6 +581,12 @@ banjo_renut_diag_terrain = false
 # (no guard): the first update package's console session compared 215,000 calls of its 512 copies with the
 # game's own code under the guard and found 0 differences (2026-10-29; the user: guard off from then on).
 # renut_guard.toml is this file with the guard on (banjo_hot_guard_calls / banjo_hot_guard_period), for a check.
+renut_shadow_resolution = "1x"
+renut_ambient_occlusion = "Half"
+katamari_hand_matrix_copy = true
+katamari_hand_matrix_multiply = true
+katamari_hand_matrix_translation = true
+
 [input_p1]
 a = ""
 b = ""
@@ -616,5 +622,3 @@ up = ""
 down = ""
 left = ""
 right = ""
-renut_shadow_resolution = "1x"
-renut_ambient_occlusion = "Half"
