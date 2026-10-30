@@ -1,0 +1,38 @@
+# katamari-nx (Beautiful Katamari, title 4E4D07DC, XDK 2.0.5632) - ReXGlue codegen configuration.
+# The project keeps banjo-nx's internal name "renut" (generated/renut_*.h, the renut / renut_recomp targets,
+# out/renut_image.bin) so banjo-nx's CMake, post-codegen passes and renderer glue work unchanged; the NRO and the SD
+# folder are katamari-nx (docs/katamari-notes.md, "Decisions").
+
+includes = [
+"config/renut_funcs.toml",
+"config/renut_hooks.toml",
+]
+
+# banjo-nx's optimised codegen keys that need no per-game audit (they change how the C++ is written, not what the
+# guest sees; banjo-nx's renut_config.toml carries the reasoning and the console measurements for each):
+cr_as_local = true
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+skip_msr = true
+dform_disp_split = true
+fctiwz_inline = true
+fcti_inline = true
+dcbt_prefetch = true
+rotate_word_shifts = true
+fp_compares_modeless = true
+fp_mode_lookahead = true
+fp_mode_lookahead_past_branch = true
+fp_copy_pairs = true
+fp_copy_forwarding = true
+div_inline = true
+fp_moves_modeless = true
+# The register "diet" keys (non_volatile_as_local, elide_lr_stores, non_argument_as_local) need this game's audits
+# (tools/read_before_write.py, tools/non_argument_audit.py) first: they are added after the first codegen's audit
+# (docs/katamari-notes.md, "Code generation").
+
+project_name = "renut"
+file_path = "assets/default.xex"
+out_directory_path = "generated"
+
+[functions]
