@@ -281,7 +281,7 @@ the generated original and compare every register, the flush mode and every byte
 Three functions of the profile cannot be copies (an atomic compare-and-swap: state shared with other threads):
 826A13D8, 82210630, 826E9E38; the next ones of the profile took their places.
 
-### Gameplay comparison: Switch vs PC (2026-10-30, open)
+### Gameplay comparison: Switch vs PC (2026-10-30; the blur FIXED in the evening, below)
 
 Run `emu2` (Switch build, sticks wandering from 240 s) reached the practice room. Compared with PC runs of the same
 script (`out/pc_runs/sticks2` on D3D12, `out/pc_runs/vk_sticks` on Vulkan):
@@ -368,3 +368,25 @@ sub_824BFE50 third (1,230); the PC's matrix compare and visibility test barely r
   it builds a frame and calls two copy routines whose stack temporaries a native would have to reproduce byte for byte.
 - The natives follow the register-diet codegen: each writes back exactly the registers its processed original writes
   back (r11, f0, v29-v31 are locals now: the first natives no longer write them).
+
+### The depth-of-field blur: found with RenderDoc and fixed (2026-10-30 evening)
+
+The user: the emulator should be accurate; use RenderDoc. `tools/run_ryujinx_rdc.ps1` runs Ryujinx with RenderDoc
+1.46's Vulkan layer (an explicit layer: `VK_LAYER_PATH` + `VK_INSTANCE_LAYERS=VK_LAYER_RENDERDOC_Capture`; the enable
+variable alone left `rdc_trigger.py` with no target) and takes captures by time. In the capture of the practice room
+(`out/emu_runs/rdc_emu2`, `tools/rdc_passes.py`, `tools/rdc_bindings.py`):
+
+- the scene's 4x depth target (D32S8 on the host, Renut's D24FS8: 20e4 float depth, "greater" test) held 0.04-0.56;
+- the depth resolve's four tile draws into the R32F float target wrote 0.0 everywhere, and their pixel shader had no
+  texture bound at all, while every game draw showed its bindless texture;
+- Ryujinx's log: "Shader translator: Failed to find handle source for bindless access of type texture2DMS". Its
+  BindlessElimination follows a texture operation's handle back to a constant buffer; for the multisampled bindless
+  fetch (TLD.MS: handle and sample index from the same register sequence) it cannot, and it replaces the fetch with 0.
+  The bindless 2D fetches of the other host shaders are followed.
+
+So the depth of field read depth 0 everywhere and blurred the scene. The fix (commit 32330443): host shaders'
+multisampled textures are BOUND textures on deko3d (`tools/deko3d_glsl.py`: `dk_ms_b<k>`; uam then emits the
+multisampled TLDS.LZ form, which Ryujinx decodes), `plume::Deko3DBindFragmentTextures` binds them by descriptor slot,
+and Renut's ResolveDepth binds the depth target and its stencil view for the multisampled variant. After it: no
+warning, and the practice room is sharp in Ryujinx (`out/emu_runs/dof_fix1`), as on the PC's Vulkan build, the far
+background softened as the game intends. banjo-nx (MSAA off) does not hit it; the fix was sent to its session.
