@@ -23,6 +23,7 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
 | Host shader tools | glslangValidator, SPIRV-Cross, uam copied from banjo-nx's `out/` | built from the same sources this tree carries (`tools/deko3d_build_tools.sh`) |
 | Shipped `renut.toml` | 720 lines handheld and docked, no dynamic resolution, the game's MSAA (`disable_msaa = false`), shadow scale 1x, post-processing at the game's precision, no extra frame cap | pixel-identical by default; banjo-nx's 648/864 lines, dynamic resolution, MSAA off and 1080 docked are `configs/*.toml` for the user (`tools/make_katamari_tomls.py`) |
 | Four-core forwarder | program id `05D6EA1333487100` (banjo-nx's is `...7000`), NPDM `tools/forwarder/katamari_main.npdm` | its own id so the two NPDMs never collide; the user makes the forwarder |
+| PGO + LTO | **deferred by the user** (14:55): the package is a normal `-O3` build (`app/out/switch`); PGO + LTO only for the final build, after more optimisation and the user's console tests, when the user says so | the user's message. The instrumented build (`app/out/switch-pgo-gen`, `-DBANJO_PGO=generate`) was stopped at 991 of 1044 steps and left as it is; `tools/build_switch.bat` takes `BUILD_DIR` and `CMAKE_EXTRA` for it (banjo-nx's docs/pgo-lto.md) |
 
 ## The game (2026-10-30)
 
@@ -253,3 +254,19 @@ Found and fixed:
 
 Saves: the game probes `SAVE:` before creating its save (the open fails, then XamContentCreate with mode 4 creates
 it), as on the PC: not an error.
+
+### Verified on the PC (2026-10-30, compare mode)
+
+`out/pc_runs/hot1` and `hot2` (visible, the scripted pad into the tutorial; `banjo_hot_guard_calls = 4000`,
+`banjo_hot_guard_period = 64`: each thread's first 4000 calls of every copy and then one in 64 run both the copy and
+the generated original and compare every register, the flush mode and every byte written):
+
+- hot1: 4,688,275 calls compared; 2 differences, both the flush mode (`fpscr.csr`) after the matrix copy and the
+  translation-matrix natives: the post-codegen passes had made those originals' lfs / stfs pairs mode-free
+  (`SingleToDoublePure` / `QuietSingleBits`), my first natives still switched the mode off. Fixed (they use the same
+  pure widening and leave the mode alone).
+- hot2 (after the fix): 93 copies reached, all 93 on, 3,927,559 calls compared, **0 differences** (one call differed
+  once and not when repeated: inputs changed by another thread between the passes, which the guard does not count).
+
+Three functions of the profile cannot be copies (an atomic compare-and-swap: state shared with other threads):
+826A13D8, 82210630, 826E9E38; the next ones of the profile took their places.
