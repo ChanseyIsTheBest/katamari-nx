@@ -1,4 +1,4 @@
-﻿# katamari-nx: named functions and function boundaries of Beautiful Katamari (docs/katamari-notes.md, "Code generation").
+# katamari-nx: named functions and function boundaries of Beautiful Katamari (docs/katamari-notes.md, "Code generation").
 [functions]
 # First codegen (2026-10-30): three "target not in any function", each a function reached only by a tail jump from a
 # thunk, after its neighbour's blr / bctr and padding (tools/ppc_dis.py):

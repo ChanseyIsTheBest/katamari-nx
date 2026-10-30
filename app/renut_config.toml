@@ -6,6 +6,7 @@
 includes = [
 "config/renut_funcs.toml",
 "config/renut_hooks.toml",
+"overrides.toml",
 ]
 
 # banjo-nx's optimised codegen keys that need no per-game audit (they change how the C++ is written, not what the

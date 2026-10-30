@@ -1,4 +1,4 @@
-# renut - ReXGlue Recompiled Project
+﻿# renut - ReXGlue Recompiled Project
 #
 # This file is yours to edit. 'rexglue migrate' will NOT overwrite it.
 # SDK boilerplate lives in generated/rexglue.cmake.
@@ -69,22 +69,13 @@ endif()
 
 
 
+# katamari-nx (2026-10-30): banjo-nx's app without the files written for N&B's addresses (its cheats and mid-asm
+# hooks, title update and DLC, the D3D hook layer of banjo-nx's PM4 renderer, its XAudio and hand-written natives, the
+# shader harvest): src/katamari_keys.cpp defines the keys of those files that the kept ones still read.
 set(RENUT_SOURCES
     src/main.cpp
-    src/renut_engine/hooks.cpp
-    src/renut_engine/StopNSwap.cpp
-	src/renut_engine/frameHooks.cpp
-    #src/renut_engine/fixes/mullhwucrash.cpp
-	src/renut_engine/cvar_menu.cpp
+    src/katamari_keys.cpp
 	src/renut_engine/FPS.cpp
-	src/renut_engine/shader_dump.cpp
-	src/renut_engine/texture_tools.cpp
-	src/renut_engine/frontend_debug_menu.cpp
-	src/renut_engine/townsfolk.cpp
-	src/renut_engine/title_update.cpp
-	src/renut_engine/dlc_install.cpp
-	src/renut_engine/thread_slots.cpp
-	src/renut_engine/env_map_pool.cpp
     # CPU/GPU profiler ported from UnleashedRecomp-NX (see src/profiler/profiler.h).
     src/profiler/profiler.cpp
     # Native renderer (from masseffect-nx, itself derived from nfsmw-nx): reads the game's PM4 ring and draws with
@@ -98,40 +89,18 @@ set(RENUT_SOURCES
     src/me/masseffect/masseffect_native_textures_pool.cpp
     src/me/masseffect/masseffect_shader_library.cpp
     src/me/masseffect/me_masseffect_glue.cpp
-    # Banjo's D3D addresses (draw-time shader load, Draw*, Swap).
-    src/me/banjo_me_hooks.cpp
+    # katamari-nx: banjo-nx's PM4 renderer is compiled (the enhancement table reads its keys) but its D3D hook layer
+    # (src/me/banjo_me_hooks.cpp, N&B's addresses) is not: masseffect_renderer_native stays false.
     src/me/banjo_renderdoc.cpp
-    # Fix: startup crash "guest read of 0x24" (resource-pool reset vs lazy getter race).
-    src/cpu/banjo_pool_lock.cpp
     # On/off switches and the startup summary of every performance enhancement (src/cpu/banjo_enhancements.h).
     src/cpu/banjo_enhancements.cpp
     # sa2-nx's CPU rounds: the PC side of the post-codegen self-checks and the censuses (empty on the Switch), and
     # the start-up check of every instruction form that only one processor has.
     src/cpu/banjo_codegen_checks.cpp
     src/cpu/banjo_forms_selfcheck.cpp
-    # Native XAudio reverb (stereo_room_t<float>::process), bit-identical to the recompiled one (banjo_native_reverb).
-    src/cpu/banjo_reverb_native.cpp
-    src/cpu/banjo_xaudio_native.cpp
-    # Native copies of hot game functions (from sa2-nx): tools/localize_native.py writes them into generated/hot from
-    # src/cpu/hot/localized.txt; each has its own key (banjo_cpu_native_*) and a guard that runs both versions.
-    src/cpu/banjo_hot_guest.cpp
-    # 2026-10-22 (bejeweled3-nx's method): the bulk list's copies (src/cpu/hot/localized_bulk.txt), their hooks spread
-    # over these files so they compile in parallel.
-    src/cpu/banjo_hot_shard_0.cpp
-    src/cpu/banjo_hot_shard_1.cpp
-    src/cpu/banjo_hot_shard_2.cpp
-    src/cpu/banjo_hot_shard_3.cpp
-    src/cpu/banjo_hot_shard_4.cpp
-    src/cpu/banjo_hot_shard_5.cpp
-    src/cpu/banjo_hot_shard_6.cpp
-    src/cpu/banjo_hot_shard_7.cpp
-    src/cpu/banjo_hot_shard_8.cpp
-    src/cpu/banjo_hot_shard_9.cpp
-    src/cpu/banjo_hot_shard_10.cpp
-    src/cpu/banjo_hot_shard_11.cpp
+    # katamari-nx: the native copies of hot game functions (banjo_hot_guest.cpp and its shards) come back with this
+    # game's profile (docs/katamari-notes.md, "Hot functions").
     src/profiler/banjo_pc_profiler.cpp
-    # Shader harvesting for the library (dev tool, banjo_volcar_shaders_en_sitio).
-    src/native/banjo_shader_harvest.cpp
     # PNG captures of the presented game image (nfsmw_captura_cada_s), from nfsmw-nx: for testing.
     src/native/nfsmw_nativo_captura.cpp
 )
@@ -168,7 +137,7 @@ rexglue_setup_target(renut GPU_PLUGINS xenos)
 # banjo-nx (2026-10-17): Ryujinx starts NROs without argv[0]; the SDK then takes the NRO's usual place on the SD
 # (sdk/src/core/filesystem_posix.cpp). A console's hbloader always passes the path, so nothing changes there.
 if(REXGLUE_PLATFORM_SWITCH AND TARGET rexcore)
-    target_compile_definitions(rexcore PRIVATE REX_SWITCH_FALLBACK_EXE="/switch/banjo-nx/banjo-nx.nro")
+    target_compile_definitions(rexcore PRIVATE REX_SWITCH_FALLBACK_EXE="/switch/katamari-nx/katamari-nx.nro")
 endif()
 
 # banjo-nx (2026-10-16): Renut's Direct3D-level renderer as a second renderer, chosen at boot (banjo_renderer = "renut";
@@ -593,14 +562,14 @@ if(REXGLUE_PLATFORM_SWITCH)
     # Link map: which object each function came from, for ranking the profiler's samples per function
     # (tools/switch-cpu-profile.py). It must come from the same build as the NRO that was profiled.
     target_link_options(renut PRIVATE "LINKER:-Map=${CMAKE_BINARY_DIR}/renut.map")
-    set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/banjo_icon.jpg")
+    set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
     set(RENUT_ICON_ARG)
     if(EXISTS "${RENUT_ICON}")
         set(RENUT_ICON_ARG ICON "${RENUT_ICON}")
     endif()
     rexglue_switch_add_nro(renut
-        NAME "Banjo-Kazooie Nuts and Bolts"  # no "&": cmd.exe would split the post-build command
-        AUTHOR "reNut / banjo-nx"
+        NAME "Beautiful Katamari"
+        AUTHOR "katamari-nx (reNut renderer, banjo-nx)"
         VERSION "0.1.0"
         ${RENUT_ICON_ARG})
 endif()

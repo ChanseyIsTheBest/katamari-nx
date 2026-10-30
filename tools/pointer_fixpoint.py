@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Declares the functions that are only reachable through code pointers stored in data (vtables, callback tables,
 the CRT's initializer table), repeating until no new one qualifies.
 

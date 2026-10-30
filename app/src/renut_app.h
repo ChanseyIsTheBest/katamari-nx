@@ -15,8 +15,8 @@
 #include "renut_engine/Timer.h"
 #include "renut_engine/Fps.h"
 #include "renut_engine/hooks.h"
-#include "renut_engine/title_update.h"  // banjo-nx (2026-10-29): title update 3
-#include "renut_engine/dlc_install.h"   // banjo-nx (2026-10-29): reNut upstream's DLC installer
+// katamari-nx: N&B's title update and DLC installer are not part of this port (Beautiful Katamari has no title update
+// in the user's files).
 #include "profiler/profiler.h"
 #include "profiler/profiler_overlay.h"
 #include "me/me_native_system.h"
@@ -62,7 +62,7 @@ public:
 
     static std::unique_ptr<rex::ui::WindowedApp> Create(
         rex::ui::WindowedAppContext& ctx) {
-        return std::unique_ptr<RenutApp>(new RenutApp(ctx, "renut", PPCImageConfig));
+        return std::unique_ptr<RenutApp>(new RenutApp(ctx, "katamari-nx", PPCImageConfig));
     }
 
 
@@ -178,9 +178,6 @@ public:
 #endif
 
     void OnPostSetup() override {
-        // banjo-nx (2026-10-29): DLC packages in the "dlc" folder next to banjo-nx installed before the game starts
-        // (reNut upstream's installer, renut_engine/dlc_install.cpp).
-        renut::dlc::InstallPackages(runtime());
         // One log line with every enhancement and whether it is active (src/cpu/banjo_enhancements.h).
         banjo::LogEnhancements();
         // PC: function-level CPU profile (banjo_pc_profile_s = N seconds per report; 0 = off; from futari-nx).
@@ -228,9 +225,7 @@ public:
     }
 
     // A game_root folder next to the executable is used when no path was given.
-    // On the Switch that is sdmc:/switch/banjo-nx/game_root (the extracted disc).
-    // banjo-nx (2026-10-29): then title update 3's update folder and its default.xexp check
-    // (renut_engine/title_update.h), and the user data folder the DLC installer looks in.
+    // On the Switch that is sdmc:/switch/katamari-nx/game_root (the extracted disc).
     void OnConfigurePaths(rex::PathConfig& paths) override {
         if (paths.game_data_root.empty()) {
             const auto folder = rex::filesystem::GetExecutableFolder();
@@ -240,8 +235,6 @@ public:
                 paths.game_data_root = extracted;
             }
         }
-        banjo::title_update::ConfigurePaths(paths);
-        renut::dlc::SetUserDataRoot(paths.user_data_root);
     }
 
 #if !REX_PLATFORM_SWITCH
@@ -251,9 +244,6 @@ public:
     {
         StartRenutRenderer();
         path_wizard_->Init(app_name_, defaults, [resume](rex::PathConfig resolved) {
-            // banjo-nx (2026-10-29): the wizard's game folder (the PC) gets the update folder and its check too.
-            banjo::title_update::ConfigurePaths(resolved);
-            renut::dlc::SetUserDataRoot(resolved.user_data_root);
             resume(resolved);
             });
         return std::nullopt;
