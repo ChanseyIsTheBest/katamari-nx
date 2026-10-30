@@ -46,6 +46,7 @@
 #endif
 
 #include "cpu/banjo_hot_common.h"
+#include <rex/ppc/diet_ops.h>  // katamari-nx: rex::ppc::SingleToDoublePure
 
 // katamari-nx: the in-run A/B's target in its off half (renut_engine/gpu/banjo_renut_tuning.cpp).
 #include <atomic>
@@ -773,11 +774,9 @@ namespace katamari {
   return __builtin_bswap32(w);
 }
 
-[[gnu::always_inline]] inline double WidenF(uint32_t w) {
-  float f;
-  std::memcpy(&f, &w, 4);
-  return double(f);
-}
+// lfs as the processed generated code makes it (codegen fp_copy_pairs: rex::ppc::SingleToDoublePure): the value
+// double(float) gives with the flush mode off, without reading or touching the mode.
+[[gnu::always_inline]] inline double WidenF(uint32_t w) { return ::rex::ppc::SingleToDoublePure(w); }
 
 // A 16-byte guest vector at any address into the register layout of the generated code (the lvlx + lvrx + vor of an
 // unaligned load, or one lvx: u8[15 - i] = byte i), and back (stvlx + stvrx: byte i = u8[15 - i]).
@@ -890,7 +889,8 @@ template <class S>
 // sub_82759C98 - a 4x4 float matrix copy: r3 = destination, r4 = source; sixteen lfs f0 / stfs f0 pairs, word by
 // word upward (the hottest guest function of the PC profile: 5.2 % of every busy sample, called for each matrix the
 // game copies). Here: the 64 bytes as they are (a word copy upward is memmove's result for dst <= src). f0 ends as
-// the last word widened, as the original leaves it. Declined: a destination ahead of an overlapping source (the
+// the last word widened, as the original leaves it; the flush mode is not touched (the processed original's lfs /
+// stfs pairs are mode-free since the post-codegen passes: the PC guard found the first version switching it). Declined: a destination ahead of an overlapping source (the
 // original then copies words it already wrote), a signalling NaN among the words (the generated widening quiets it).
 namespace n_82759C98 {
 
@@ -905,7 +905,6 @@ template <class S>
   for (uint32_t k = 0; k < 16; ++k) nan |= uint32_t(katamari::Snan(katamari::LoadW(p + 4 * k)));
   if (nan) [[unlikely]] return false;
   s.Hand(kMatCopy, 64);
-  ctx.fpscr.disableFlushMode();
   const double last = katamari::WidenF(katamari::LoadW(p + 60));
   if (!s.Note(dst, 64)) [[unlikely]] return true;
   ::banjo::hot::Card(base, dst, 64);
@@ -957,7 +956,6 @@ template <class S>
   if (katamari::Snan(one) | katamari::Snan(zero) | katamari::Snan(x) | katamari::Snan(y) | katamari::Snan(z))
     [[unlikely]] return false;
   s.Hand(kMatTranslation, 64);
-  ctx.fpscr.disableFlushMode();
   // Each word goes out as float(double(float)) of its own bits: the same bits for every value but a signalling NaN.
   const uint32_t words[16] = {one, zero, zero, zero, zero, one, zero, zero, zero, zero, one, zero, x, y, z, one};
   if (!s.Note(dst, 64)) [[unlikely]] return true;
