@@ -2,7 +2,9 @@
 # (nfsmw_captura_cada_s), stopped after -Seconds. Stops only the process it started.
 #   powershell -File tools/run_pc.ps1 -Seconds 120 -Name boot1 [-Every 15] [-Extra "--gpu_plugin=xenos --foo=1"]
 # The log is written unbuffered (log_file_writer = false): the run is stopped by force, which would drop the buffer.
-param([int]$Seconds = 90, [string]$Name = "run", [int]$Every = 15, [string]$Extra = "")
+# -Visible: the window is shown (not minimised): Renut presents (and so captures and paces by vsync) only with a
+# swapchain, which a minimised window does not get.
+param([int]$Seconds = 90, [string]$Name = "run", [int]$Every = 15, [string]$Extra = "", [switch]$Visible)
 $root = Split-Path -Parent $PSScriptRoot
 $dir = Join-Path $root "app\out\pc"
 $exe = Join-Path $dir "renut.exe"
@@ -10,11 +12,13 @@ $logs = Join-Path $root "out\pc_runs\$Name"
 New-Item -ItemType Directory -Force $logs | Out-Null
 $log = Join-Path $logs "$Name.log"
 Remove-Item $log -ErrorAction SilentlyContinue
-$args = @("--log_file=$log", "--audio_mute=true", "--window_start_minimized=true", "--fullscreen=false",
+$min = if ($Visible) { "false" } else { "true" }
+$args = @("--log_file=$log", "--audio_mute=true", "--window_start_minimized=$min", "--fullscreen=false",
           "--game_data_root=D:/beautifulkatamari/game", "--user_data_root=$root/out/pc_user",
           "--nfsmw_captura_cada_s=$Every", "--nfsmw_captura_max=60", "--log_file_writer=false") +
         @($Extra -split ' ' | Where-Object { $_ })
-$p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $dir -PassThru -WindowStyle Minimized `
+$style = if ($Visible) { "Normal" } else { "Minimized" }
+$p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $dir -PassThru -WindowStyle $style `
      -RedirectStandardError (Join-Path $logs "stderr.txt") -RedirectStandardOutput (Join-Path $logs "stdout.txt")
 Write-Output "started pid $($p.Id)"
 $deadline = (Get-Date).AddSeconds($Seconds)

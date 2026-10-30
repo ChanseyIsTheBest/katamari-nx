@@ -516,6 +516,7 @@ public:
   const d3d::Device &dev() const { return *reinterpret_cast<const d3d::Device *>(bytes_); }
   u32 U32(u32 offset) const { return *reinterpret_cast<const be_u32 *>(bytes_ + offset); }
   u8 U8(u32 offset) const { return bytes_[offset]; }
+  const u8 *Bytes(u32 offset) const { return bytes_ + offset; }  // katamari-nx: DeviceDeclarationLocked
   float F32(u32 offset) const {
     const u32 bits = U32(offset);
     float value;
@@ -6967,6 +6968,47 @@ VertexDeclarationRecord &NoDeclaration() {
   return record;
 }
 
+// katamari-nx (2026-10-30, from peggle2-nx's fix of 2026-10-20): the device's own vertex declaration. Renut's
+// CreateDevice points the device's declaration at the block embedded in the device (+0x2F98 on XDK 2.0.5632; N&B's
+// update +0x2FA8), and the XDK's SetFVF rebuilds that block from an FVF; it is no record of ours. The first PC run drew
+// with it ("Draw dropped: vertex declaration ABE92F98 is not one the renderer knows (words 00000005 00000001)").
+// Its D3DVERTEXELEMENT9s (12 bytes each, ended by D3DDECL_END) are at +52 of the declaration, inside the device
+// snapshot, so a draw reads them from its own snapshot; at most 15 before the device's next field (+0x3088). One record
+// per distinct element list; each new list is logged once with its elements, to check the layout.
+constexpr u32 kDeviceDeclarationOffset = 0x2F98;
+constexpr u32 kDeclarationElementsOffset = 52;
+constexpr u32 kDeviceDeclarationMaxElements = 15;
+
+const VertexDeclarationRecord *DeviceDeclarationLocked(const GuestDevice &device) {
+  static std::unordered_map<uint64_t, std::unique_ptr<VertexDeclarationRecord>> records;
+  static uint64_t last_hash = 0;
+  static const VertexDeclarationRecord *last = nullptr;
+  const u32 first = kDeviceDeclarationOffset + kDeclarationElementsOffset;
+  u32 count = 0;
+  while (count < kDeviceDeclarationMaxElements && device.U32(first + count * 12 + 4) != kDeclTypeUnused)
+    ++count;
+  if (!count || count == kDeviceDeclarationMaxElements)
+    return nullptr;
+  const uint64_t hash = XXH3_64bits(device.Bytes(first), count * 12);
+  if (last && hash == last_hash)
+    return last;
+  auto &record = records[hash];
+  if (!record) {
+    record = std::make_unique<VertexDeclarationRecord>();
+    const auto *elements = reinterpret_cast<const GuestVertexElement *>(device.Bytes(first));
+    record->elements.assign(elements, elements + count);
+    BuildDeclarationLayout(*record);
+    std::string words;
+    for (u32 i = 0; i < count; ++i)
+      words += fmt::format(" {:08X}:{:08X}:{:08X}", device.U32(first + i * 12), device.U32(first + i * 12 + 4),
+                           device.U32(first + i * 12 + 8));
+    RGPU_INFO("[katamari] device declaration {:016X}: {} elements{}", hash, count, words);
+  }
+  last_hash = hash;
+  last = record.get();
+  return last;
+}
+
 } // namespace
 
 // banjo-nx (2026-10-27, the user's shadow-caster culling): render/draw.h.
@@ -8306,6 +8348,8 @@ int FastDrawLocked(const u8 *device_state, const DrawCall &call, const ReplayCon
         g_last_declaration_va = g_last_declaration ? declaration_va : 0;
       }
       declaration = g_last_declaration_va == declaration_va ? g_last_declaration : nullptr;
+      if (!declaration && declaration_va == Video::GuestDevice() + kDeviceDeclarationOffset)
+        declaration = DeviceDeclarationLocked(device);  // katamari-nx
     } else if (vs->bound_declaration) {
       declaration = vs->bound_declaration.get();
       shader_strides = vs->bound_strides;
@@ -9616,6 +9660,8 @@ bool DrawStateLocked(const u8 *device_state, const DrawCall &call, const ReplayC
       g_last_declaration_va = g_last_declaration ? declaration_va : 0;
     }
     declaration = g_last_declaration_va == declaration_va ? g_last_declaration : nullptr;
+    if (!declaration && declaration_va == Video::GuestDevice() + kDeviceDeclarationOffset)
+      declaration = DeviceDeclarationLocked(device);  // katamari-nx
   } else if (vs && vs->bound_declaration) {
     declaration = vs->bound_declaration.get();
     shader_strides = vs->bound_strides;

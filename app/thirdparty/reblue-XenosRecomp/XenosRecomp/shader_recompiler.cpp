@@ -164,6 +164,9 @@ static constexpr std::pair<DeclUsage, size_t> INTERPOLATORS[] =
     { DeclUsage::Normal, 2 },
     { DeclUsage::Tangent, 0 },
     { DeclUsage::Binormal, 0 },
+    // katamari-nx (2026-10-30): Beautiful Katamari's shaders also pass the fog interpolator (oFog0 / iFog0: two of the
+    // first PC run's captures did not compile without it). Last, so every interpolator before it keeps its location.
+    { DeclUsage::Fog, 0 },
 #endif
 };
 

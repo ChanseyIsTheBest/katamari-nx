@@ -156,11 +156,40 @@ back to 11776, still the last boundary before Katamari's vertex declaration (+11
 | XMemFree | `sub_822089F0` | `sub_824CAB98` | the hardware-device init frees with `lis r4,0xB1800000; li r3,0; bl` |
 | D3D_IsFusion's word, the two export skip words | `0x82DC67D4`, `0x82E1A9E4/8` | none | not in XDK 2.0.5632: 0, and the reads guarded |
 
+### First runs on the PC (2026-10-30, Renut on Vulkan)
+
+- `renut2` (minimised, so no swapchain: no pacing, about 2,000 frames a second): 150 s, the generated-code
+  self-checks 0 differences, XMA audio decoding, 16 draws dropped on the device's own declaration (fixed:
+  `DeviceDeclarationLocked`, from peggle2-nx, at +0x2F98) and five run-time shaders captured, two of which pass the
+  fog interpolator Renut's XenosRecomp did not declare (fixed: `{ Fog, 0 }` appended to its interpolators).
+- `renut3` (visible window): 60 frames a second by vsync, render thread 0.3-0.5 ms and GPU 1.4-3.2 ms a frame, no
+  draw dropped, no shader missing: the boot screen (the Prince on white), the save menu ("New Game", the button
+  prompts), the "Start a new game?" dialog, all drawn as expected.
+
+### What the game decides (porting-guide-renderer.md section 2; census of the menus, gameplay to follow)
+
+| Question | Beautiful Katamari (menus) | N&B |
+|---|---|---|
+| Where draws come from | direct calls: 0 command-buffer recordings run; 83-84 % DrawVerticesUP | 98.5 % recorded command buffers |
+| Where resources come from | 100 % of vertex streams from a Create hook; 100 % of bound textures from a Create hook or SetTextureHeader; no locks | 5 % / 26 % through creation calls |
+| How state is set | through the hooked setters (87-88 % of draws change nearly every field group: UI draws) | 99.9 % hookable setters |
+| Memexport | none (no export functions in XDK 2.0.5632) | nearly every draw |
+
+So the record-time items built for N&B's recorded buffers (resource / geometry objects at record time, the replay
+stream, record lookups: A/B 45-50) have little or nothing to act on in the menus; the per-draw fast path, pipelines
+by content, pushed constants and whole-buffer copies apply as they are.
+
 ### Shaders
 
 The image holds 118 shader containers (92 vertex, 26 pixel; 111 unique by XXH3): `tools/renut_shader_dump.py` (from
 peggle2-nx) seeded `out/renut_shader_dump` with them. Shaders the game makes at run time from its data are captured
 by Renut on the PC (its capture folder) and added by the next build.
+
+The Switch's inputs (`tools/switch_shaders.ps1`, banjo-nx's steps): Renut's XenosRecomp with the early-alpha pass and
+the deko3d SPIR-V output, SPIRV-Cross to GLSL, banjo-nx's 27 GLSL passes, uam. First run on the 111: all compile
+(86 vertex shaders, median 31 KB of DKSH, largest 154 KB; 25 pixel shaders, median 1 KB), the package 6 MB of GLSL
+-> 518 KB (`app/out/renut_switch/deko3d_glsl.bin`), the Switch copy of the cache 23 KB + 527 KB of SPIR-V. banjo-nx's
+hash-keyed passes (skin-once, light-branch, null-ps, gpr32 lists) name N&B's shaders and change none of these.
 
 To do once Renut runs (from sasrt-nx, 2026-10-30): Renut writes no resolve result back to guest memory, so game code
 that reads a GPU result on the CPU (auto-exposure, glare visibility) gets 0. sasrt-nx's fix is
