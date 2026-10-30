@@ -201,7 +201,11 @@ hash-keyed passes (skin-once, light-branch, null-ps, gpr32 lists) name N&B's sha
 To do once Renut runs (from sasrt-nx, 2026-10-30): Renut writes no resolve result back to guest memory, so game code
 that reads a GPU result on the CPU (auto-exposure, glare visibility) gets 0. sasrt-nx's fix is
 `sasrt_renut_resolve_readback` ("D:\sonic transformed\sasrt-nx\tools\renut_patches\sasrt_edits.py"). Check whether
-Katamari locks resolve destinations on the CPU (log Renut's `LockSurface` on resolve destinations). plume's four
+Katamari locks resolve destinations on the CPU (log Renut's `LockSurface` on resolve destinations).
+**Answered (2026-10-30)**: `[katamari] texture lock` (resource.cpp) logs every READ-ONLY lock of a texture or
+surface; in four emulator runs from boot to the practice room (one of 25 minutes) there were none (the only texture
+locks are the uploads at load time, flags 0). Beautiful Katamari does not read GPU results on the CPU on that route:
+sasrt-nx's resolve readback is not needed so far. plume's four
 deko3d fixes of the same message (Zcull invalidate braces, MSAA sample positions, alpha-to-coverage dither,
 primitive restart) are already in this tree's plume (copied from banjo-nx).
 
