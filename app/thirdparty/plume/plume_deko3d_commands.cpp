@@ -1236,6 +1236,19 @@ namespace plume {
         return true;
     }
 
+    bool Deko3DBindFragmentTextures(RenderCommandList *commandList, uint32_t first, const uint32_t *slots, uint32_t count) {
+        Deko3DCommandList *cl = static_cast<Deko3DCommandList *>(commandList);
+        if (!cl || !cl->cmd || !slots || count == 0 || count > 8 || first + count > 32)
+            return false;
+        DkResHandle handles[8];
+        for (uint32_t k = 0; k < count; k++)
+            handles[k] = dkMakeTextureHandle(slots[k] & 0xFFFFFu, 0);
+        dkCmdBufBindTextures(cl->cmd, DkStage_Fragment, first, handles, count);
+        cl->boundTexCount[2] = 0;  // the next bindTextures binds the whole stage again
+        cl->texPipeline = nullptr;  // and does not skip its run
+        return true;
+    }
+
     bool Deko3DBindFetchData(RenderCommandList *commandList, uint64_t address, uint32_t size) {
         Deko3DCommandList *cl = static_cast<Deko3DCommandList *>(commandList);
         if (!cl || !address)

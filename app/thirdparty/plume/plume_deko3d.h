@@ -756,6 +756,10 @@ namespace plume {
     // constants (Deko3DSetSharedWords) the renderer changed (bit i = line i).
     void Deko3DSetTextureSkip(bool on);
     void Deko3DSharedLinesWritten(RenderCommandList *commandList, uint32_t lines);
+    // katamari-nx (2026-10-30): fragment-stage textures bound by descriptor slot (sampler 0), bindings first.., for a
+    // host pipeline whose shader declares them bound (tools/deko3d_glsl.py: host shaders' multisampled textures,
+    // dk_ms_b<k>); the stage's tracked handles are forgotten, so the next pipeline with bound textures binds its own.
+    bool Deko3DBindFragmentTextures(RenderCommandList *commandList, uint32_t first, const uint32_t *slots, uint32_t count);
     bool Deko3DPushUniformSlow(RenderCommandList *commandList, uint64_t address, uint32_t uboSize, uint32_t offset,
                                const void *data, uint32_t size);
     // banjo-nx (2026-10-27, deko3d recording): one piece (every push the renderer makes: 64-byte constant groups and

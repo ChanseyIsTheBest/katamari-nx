@@ -22,11 +22,14 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $logs = Join-Path $sd "logs"
 if (Test-Path $logs) { Remove-Item -Recurse -Force $logs }
 $env:DOTNET_ROOT = "D:\New folder\dotnet10"
+# An explicit layer through VK_LAYER_PATH: it is enabled by VK_INSTANCE_LAYERS (ENABLE_VULKAN_RENDERDOC_CAPTURE alone only
+# acts on an implicit, registered layer: the first run's trigger found no target).
 $env:VK_LAYER_PATH = $rdcDir
+$env:VK_INSTANCE_LAYERS = "VK_LAYER_RENDERDOC_Capture"
 $env:ENABLE_VULKAN_RENDERDOC_CAPTURE = "1"
 $p = Start-Process -FilePath $ryu -ArgumentList @("-r", "`"$data`"", "`"$nro`"") -PassThru -WindowStyle Minimized `
      -RedirectStandardOutput (Join-Path $out "ryujinx_stdout.txt") -RedirectStandardError (Join-Path $out "ryujinx_stderr.txt")
-Remove-Item Env:\VK_LAYER_PATH, Env:\ENABLE_VULKAN_RENDERDOC_CAPTURE
+Remove-Item Env:\VK_LAYER_PATH, Env:\VK_INSTANCE_LAYERS, Env:\ENABLE_VULKAN_RENDERDOC_CAPTURE
 $env:RDC_OUT = $out
 $env:RDC_TIMES = $Times
 $q = Start-Process -FilePath (Join-Path $rdcDir "qrenderdoc.exe") -ArgumentList @("--python", "`"$(Join-Path $root 'tools\rdc_trigger.py')`"") `

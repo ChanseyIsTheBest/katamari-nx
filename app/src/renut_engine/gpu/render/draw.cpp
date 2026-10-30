@@ -11548,6 +11548,16 @@ bool ResolveDepth(HostSurface *surface, HostTexture *dest, const ClearRect &src,
   push.param0 = GpuTextureFormat(surface->format_word & 0x3F) == GpuTextureFormat::Fmt24_8_Float
                     ? 1.0f
                     : 0.0f;
+#if defined(PLUME_DEKO3D)
+  // katamari-nx (2026-10-30): the multisampled variant's deko3d shader reads the depth target (binding 0) and its
+  // stencil view (binding 1) as BOUND textures (tools/deko3d_glsl.py). Bindless, the multisampled fetch was one Ryujinx's
+  // shader translator cannot follow ("Failed to find handle source for bindless access of type texture2DMS"): it read
+  // 0, and Beautiful Katamari's depth of field, which reads this resolve of its 4x depth, blurred the whole scene.
+  if (variant == 1 && IsDeko3D()) {
+    const uint32_t slots[2] = {source_slot, push.param1 != 0.0f ? push.sampler_index : source_slot};
+    plume::Deko3DBindFragmentTextures(cmd, 0, slots, 2);
+  }
+#endif
   cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
   cmd->drawInstanced(3, 1, 0, 0);
   TransitionTextureLocked(dest, plume::RenderTextureLayout::SHADER_READ);
