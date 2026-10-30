@@ -32,6 +32,13 @@ fp_moves_modeless = true
 # (tools/read_before_write.py, tools/non_argument_audit.py) first: they are added after the first codegen's audit
 # (docs/katamari-notes.md, "Code generation").
 
+# setjmp / longjmp (peggle2-nx's method, by shape; tools/ppc_dis.py): setjmp 0x827EB5D0 saves f14-f31 then r13-r31 into
+# the buffer at r3 (`stfd f14,0(r3)` ... `std r13,152(r3)`), after a check of a hook word (`lwz r0,-11412(r4);
+# bnectr`); longjmp 0x827EB3B0 reloads them from the buffer (`mr r7,r3` ... `lfd f14,0(r7)`). 4+ setjmp callers,
+# about 20 longjmp callers (0x828AD3C8 ... 0x829A52C4).
+setjmp_address = 0x827EB5D0
+longjmp_address = 0x827EB3B0
+
 project_name = "renut"
 file_path = "assets/default.xex"
 out_directory_path = "generated"

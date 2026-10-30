@@ -52,11 +52,85 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
   no new candidates (fixpoint).
 - 269 generated files.
 
-## Renut's renderer at Katamari's addresses
+## Renut's renderer at Katamari's addresses (2026-10-30)
 
-Not started yet. Inputs: Feeding Frenzy 2's method (XDK 6534: state tables found by the defaults at stride 12, the
-rest by field signature, `tools/renut_hook_remap_ff2.py`), Zuma's for older resource headers (XDK 2135), peggle2-nx's
-`tools/renut_hook_remap.py` and `renut_device_offsets.py`.
+banjo-nx's Renut is written for N&B's **title update 3** (XDK 2.0.7978): its hooks are at the update's addresses and
+its device offsets are the update's (some differ from the base game's: IndexBuffer 12436 in the base, 12444 in the
+update). Every comparison below is against banjo-nx's own generated tree (`D:\Banjo kazooie port\banjo-nx\app\generated`)
+and image dump, never the base game.
+
+### The hooks (`tools/renut_hook_remap_katamari.py`, `out/renut_map/remap_report.txt`)
+
+322 of Renut's 354 hooks are at Beautiful Katamari's functions; the other 32 compile but are registered nowhere
+(`BANJO_RENUT_UNHOOKED_*`, `banjo_renut_select.h`):
+
+- **222 state functions from the state tables** (`tools/renut_state_tables.py`): N&B's records {getter, setter,
+  default} at `0x82D8A948` (101 render states) and `0x82D8AE28` (20 sampler states); Katamari's are at **`0x82AD8E48`**
+  and **`0x82AD9308`**, found by N&B's defaults at stride 12, every record paired by its default (same count, same
+  order).
+- **60 by field signature** (`tools/renut_sigmatch.py`: the multiset of instructions with registers removed, D-form
+  displacements and immediates kept, imports by name; weighted Jaccard), score >= 0.75 and 0.05 ahead of the next.
+  Examples: DrawVertices `sub_824D9D08` 0.90, DrawIndexedVertices `sub_824DA0F0` 0.87, Clear `sub_824F3370` 0.84,
+  Resolve `sub_824F12B8` 0.78, SetVertexShader / SetPixelShader `sub_824D4930` / `sub_824D4630`, the lock and
+  surface-description functions at 1.00.
+- **40 by hand** (`tools/renut_hook_map_katamari.txt`, each with its evidence): CreateDevice `sub_824D0598` (allocates
+  the 0x5700 device, calls the device init `sub_824E18D0`), Present `sub_824E9428` (calls
+  SynchronizeToPresentationInterval, Resolve, KickOff, Swap), Swap `sub_824E8E90` (the only VdSwap caller),
+  GetDeviceCaps `sub_824E6410` (copies 304 bytes from `0x820FC1F8`), SetGammaRamp / SetPWLGamma `sub_824DE218` /
+  `sub_824DE2F8` (called in N&B's order by InitializePresentationParameters), the surface-level getters read in the
+  image (GetCubeMapSurface `sub_824D2160` keeps the face argument), and the ring and fence functions.
+- **Not hooked**: BeginExport / EndExport (XDK 2.0.5632 has no memexport), the command-buffer functions (no clear
+  counterpart; census pending), DrawIndexedVerticesUP, the one-instruction thunks, D3D_IsFusion, a few ambiguous ones.
+- **Tiling: XDK 2.0.5632 keeps the full public forms** (N&B's update dropped the unused arguments).
+  BeginTiling is **`sub_824EFBC8`** (it stores the count at TileCount and the targets at TilingSurfaces, where the
+  zones below put N&B's fields; the game calls it at `0x8271E62C`): BeginTiling(Flags r4, Count r5, pTileRects r6,
+  pClearColor r7, ClearZ f1, ClearStencil r9). It clears with ClearZ / ClearStencil and keeps them for EndTiling,
+  stores Flags at +0x337C, sets Flags3 0x20 (and 0x10 with Flags bit 2) when Flags has bit 1, and skips its first
+  clear when Flags has bit 0 or Flags3 has 0x20. EndTiling `sub_824F0150` (ResolveFlags r4, pResolveRects r5,
+  pDestTexture r6, pClearColor r7, ClearZ f1, ClearStencil r9, pParameters r10) resolves every tile but the last
+  with ResolveFlags | 0x100 (a colour target bound) | 0x200 (a depth surface bound) and BeginTiling's clear values,
+  the last with the caller's values. Renut's two hooks became `BeginTilingImpl` / `EndTilingImpl` with those
+  arguments; raw hooks read them from the registers (`d3d/hooks/draw.cpp`).
+- The profiler's frame boundary is at Present (N&B's was its `appMainDraw` hook, not built here).
+
+### The device layout (`tools/renut_field_diff.py`, `renut_field_pairs.py`, `renut_device_offsets_katamari.py`)
+
+The displacements of 288 paired functions, N&B's update against Katamari:
+
+| N&B update offsets | Katamari | Evidence |
+|---|---|---|
+| 0 .. 10943 | the same | ring, state-call tables, fetch constants, the register packets, fences, flags (158 pairs identical) |
+| 10944 .. 11827 | -12 | 11012 -> 11000; VertexDeclaration 11824 -> 11812 (SetVertexDeclaration) |
+| 11828 .. ~13470 | -16 | 11832 -> 11816 (XenonGpu_Initialize), the render-state block 11856.. -> 11840.., IndexBuffer / RenderTargets / DepthStencil / streams / textures / predication / tiling, VerticesRingEnd 13444 -> 13428, InKickOff 13232 -> 13216 |
+| ~13490 .. 16800 | -24 | CommandBuffer 13516 -> 13492, PresentInterval 13596 -> 13572, the presentation copy 13544 -> 13520, auto surfaces 14824.. -> 14800.., ring fields 14836.. -> 14812.., critical sections 14944 / 14972 -> 14920 / 14948 (RtlInitializeCriticalSection calls), SwapCount 16560 -> 16536, 16708 -> 16684, SideBuffer 16728 -> 16704 |
+| 21532 | 21508 | Swap |
+| 21544 .. 21592 | -28 | display mode 21544 / 48 / 52 / 56 -> 21516 / 20 / 24 / 28 (InitializePresentationParameters, by source), the -1 words 21560 / 64 -> 21532 / 36 and perf frequency / period 21588 / 92 -> 21560 / 64 (the device init) |
+| 21624 .. 21632 | -32 | Swap |
+| 23348 .. 23956 | -1708 | the 41 -1 words 23380 -> 21672 (`li r11,41; addi r10,r31,23380` / `addi r11,r3,21672; li r10,41`), gamma 23952 / 56 -> 22244 / 48 |
+| 23976 .. 23980 | -1716 | BehaviorFlags 23980 -> 22264 (InitializeApiState, XenonGpu_Initialize) |
+| device size 0x5E00 | 0x5700 | Katamari allocates and clears 0x5700 (`li r3,22272`, `sub_824D0240`); N&B allocates 0x5E80, clears 0x5E00 |
+
+165 lines of Renut rewritten (`out/renut_map/offsets_report.txt`); every literal fell in a zone.
+
+### Guest data (`tools/renut_data_refs.py`)
+
+| What | N&B update | Katamari | Evidence |
+|---|---|---|---|
+| XDK build qword (device +10880) | `0x82DA3478` | `0x82AD93F8` | holds 0x0002000016004000 (2.0.5632.0) |
+| VdGlobalDevice import record | `0x820007F8` | `0x82000750` | both resolve to the same kernel variable (0xFFCAE000); D3D_LockResource, D3DResource_Destroy |
+| D3DCAPS9 | `0x82161B30` | `0x820FC1F8` | GetDeviceCaps's 304-byte copy |
+| full viewport | `0x82001744` | `0x820FAEB4` | EndTiling, D3D_SetSurfaceInfo |
+| XPhysicalAlloc's no-large-pages flag | `0x82DA3778` | `0x8315DFE0` | Katamari's XPhysicalAlloc at `0x824C1C30` (same instructions) |
+| format table | `0x82005200` | `0x820FA9D0` | seven D3D functions agree |
+| HiZ owner | `0x82E108A0` | `0x8315E830` | CreateSurface, D3DResource_Destroy |
+| XMemFree | `sub_822089F0` | `sub_824CAB98` | the hardware-device init frees with `lis r4,0xB1800000; li r3,0; bl` |
+| D3D_IsFusion's word, the two export skip words | `0x82DC67D4`, `0x82E1A9E4/8` | none | not in XDK 2.0.5632: 0, and the reads guarded |
+
+### Shaders
+
+The image holds 118 shader containers (92 vertex, 26 pixel; 111 unique by XXH3): `tools/renut_shader_dump.py` (from
+peggle2-nx) seeded `out/renut_shader_dump` with them. Shaders the game makes at run time from its data are captured
+by Renut on the PC (its capture folder) and added by the next build.
 
 To do once Renut runs (from sasrt-nx, 2026-10-30): Renut writes no resolve result back to guest memory, so game code
 that reads a GPU result on the CPU (auto-exposure, glare visibility) gets 0. sasrt-nx's fix is

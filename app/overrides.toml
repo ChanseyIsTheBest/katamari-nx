@@ -18,8 +18,6 @@
 "0x822D3EBC" = { }  # 5 instructions, pointer at 0x820553B0
 "0x822D3ED0" = { }  # 1 instructions, pointer at 0x820553B8
 "0x82307700" = { }  # 10 instructions, pointer at 0x82058B94
-"0x823086E8" = { }  # 47 instructions, built at 0x823086D4
-"0x8230DCDC" = { }  # 16 instructions, built at 0x8230DCC8
 "0x82314468" = { }  # 1 instructions, pointer at 0x8205AA68
 "0x823144AC" = { }  # 1 instructions, pointer at 0x8205AA78
 "0x823144F0" = { }  # 1 instructions, pointer at 0x8205AA88
@@ -32,11 +30,9 @@
 "0x823ED8A0" = { }  # 17 instructions, pointer at 0x820805F0
 "0x823FEB98" = { }  # 4 instructions, built at 0x8229CDC0 (+17 more)
 "0x82401420" = { }  # 10 instructions, pointer at 0x82083264
-"0x82403060" = { }  # 19 instructions, built at 0x8240304C
 "0x8241F428" = { }  # 7 instructions, built at 0x8241F494
 "0x82426988" = { }  # 8 instructions, pointer at 0x820D9E44
 "0x82426AD8" = { }  # 5 instructions, pointer at 0x820D9F40 (+1 more)
-"0x82454254" = { }  # 19 instructions, built at 0x82454240
 "0x824681B0" = { }  # 8 instructions, built at 0x8246842C
 "0x824CF3F8" = { }  # 4 instructions, pointer at 0x821CFA60
 "0x8250CDD8" = { }  # 4 instructions, built at 0x8250D9CC
@@ -55,7 +51,6 @@
 "0x82540C58" = { }  # 2 instructions, pointer at 0x8210B86C (+1 more)
 "0x82540C60" = { }  # 2 instructions, pointer at 0x8210B990
 "0x82540C70" = { }  # 2 instructions, pointer at 0x8210B96C
-"0x8255BCD4" = { }  # 10 instructions, built at 0x8255BCC0
 "0x8255D9B0" = { }  # 2 instructions, pointer at 0x8210DFE0 (+1 more)
 "0x8255FC70" = { }  # 2 instructions, pointer at 0x8210E044
 "0x8255FC90" = { }  # 2 instructions, pointer at 0x8210E03C
@@ -85,11 +80,9 @@
 "0x82677560" = { }  # 4 instructions, pointer at 0x82160DA4
 "0x82677CA0" = { }  # 4 instructions, pointer at 0x82160E30 (+1 more)
 "0x82686F68" = { }  # 5 instructions, pointer at 0x821673D4
-"0x82707588" = { }  # 34 instructions, built at 0x82707574
 "0x8270D8F8" = { }  # 3 instructions, pointer at 0x8217608C
 "0x8270F9F8" = { }  # 7 instructions, pointer at 0x8217AF30
 "0x827100E8" = { }  # 12 instructions, pointer at 0x8217A24C
-"0x82710110" = { }  # 64 instructions, built at 0x827100FC
 "0x82716370" = { }  # 4 instructions, pointer at 0x82178604 (+1 more)
 "0x82716380" = { }  # 3 instructions, pointer at 0x82178658 (+1 more)
 "0x827163A0" = { }  # 3 instructions, pointer at 0x821786B4 (+4 more)
@@ -119,3 +112,98 @@
 "0x8295DA28" = { }  # 20 instructions, pointer at 0x821C0D60 (+1 more)
 "0x8295DA78" = { }  # 6 in the gap, then the registered tail sub_8295DA90, pointer at 0x821C0D68
 "0x8298C8B0" = { }  # 4 instructions, pointer at 0x821C526C (+1 more)
+
+# Complete functions in unclaimed gaps without a pointer the pointer sweep sees (tools/gap_sweep.py pass 1): the scratch listing fits in the gap (or continues only into a registered tail it branches
+# to), ends in a terminator, reads no register that is undefined at a function entry. First case:
+# 0x82689770, the first PC boot's "Call to invalid or unregistered function".
+"0x822397AC" = { }  # 1 instructions, gap sweep
+"0x8224DE5C" = { }  # 1 instructions, gap sweep
+"0x822CE178" = { }  # 1 instructions, gap sweep
+"0x822CFD34" = { }  # 1 instructions, gap sweep
+"0x822F40A0" = { }  # 1 instructions, gap sweep
+"0x82306EC4" = { }  # 1 instructions, gap sweep
+"0x82309310" = { }  # 1 instructions, gap sweep
+"0x8230BDD4" = { }  # 1 instructions, gap sweep
+"0x823127E8" = { }  # 1 instructions, gap sweep
+"0x82312914" = { }  # 1 instructions, gap sweep
+"0x8233E950" = { }  # 1 instructions, gap sweep
+"0x82342784" = { }  # 1 instructions, gap sweep
+"0x82344CE4" = { }  # 1 instructions, gap sweep
+"0x82351450" = { }  # 1 instructions, gap sweep
+"0x823658A4" = { }  # 1 instructions, gap sweep
+"0x82367698" = { }  # 1 instructions, gap sweep
+"0x823676C0" = { }  # 1 instructions, gap sweep
+"0x82372AE4" = { }  # 1 instructions, gap sweep
+"0x8237EAA4" = { }  # 1 instructions, gap sweep
+"0x823D014C" = { }  # 1 instructions, gap sweep
+"0x823D51D4" = { }  # 1 instructions, gap sweep
+"0x823D9214" = { }  # 1 instructions, gap sweep
+"0x823DD038" = { }  # 1 instructions, gap sweep
+"0x824269A8" = { }  # 1 instructions, gap sweep
+"0x8246E22C" = { }  # 1 instructions, gap sweep
+"0x82490300" = { }  # 1 instructions, gap sweep
+"0x8249969C" = { }  # 1 instructions, gap sweep
+"0x824A8300" = { }  # 4 instructions, gap sweep
+"0x824AB400" = { }  # 1 instructions, gap sweep
+"0x824B0560" = { }  # 1 instructions, gap sweep
+"0x82554EC8" = { }  # 1 instructions, gap sweep
+"0x82555A0C" = { }  # 1 instructions, gap sweep
+"0x82561A70" = { }  # 1 instructions, gap sweep
+"0x82561AA0" = { }  # 1 instructions, gap sweep
+"0x825722F8" = { }  # 2 instructions, gap sweep
+"0x825DCC84" = { }  # 1 instructions, gap sweep
+"0x8264E2C0" = { }  # 1 instructions, gap sweep
+"0x82650308" = { }  # 1 instructions, gap sweep
+"0x8265429C" = { }  # 1 instructions, gap sweep
+"0x82654DB8" = { }  # 1 instructions, gap sweep
+"0x82654DE8" = { }  # 1 instructions, gap sweep
+"0x82658AD4" = { }  # 1 instructions, gap sweep
+"0x8265A30C" = { }  # 1 instructions, gap sweep
+"0x8265A32C" = { }  # 1 instructions, gap sweep
+"0x8266B914" = { }  # 1 instructions, gap sweep
+"0x8266BA8C" = { }  # 1 instructions, gap sweep
+"0x82672C64" = { }  # 1 instructions, gap sweep
+"0x82672C84" = { }  # 1 instructions, gap sweep
+"0x8267327C" = { }  # 1 instructions, gap sweep
+"0x82677A6C" = { }  # 1 instructions, gap sweep
+"0x82677A90" = { }  # 1 instructions, gap sweep
+"0x82689770" = { }  # 11 instructions, gap sweep
+"0x826A24F0" = { }  # 11 instructions, gap sweep
+"0x82702138" = { }  # 1 instructions, gap sweep
+"0x82702164" = { }  # 1 instructions, gap sweep
+"0x8270218C" = { }  # 1 instructions, gap sweep
+"0x827021B4" = { }  # 1 instructions, gap sweep
+"0x827021DC" = { }  # 1 instructions, gap sweep
+"0x82702268" = { }  # 1 instructions, gap sweep
+"0x82702290" = { }  # 1 instructions, gap sweep
+"0x827022BC" = { }  # 1 instructions, gap sweep
+"0x827022E4" = { }  # 1 instructions, gap sweep
+"0x8270230C" = { }  # 1 instructions, gap sweep
+"0x82702334" = { }  # 1 instructions, gap sweep
+"0x82702358" = { }  # 1 instructions, gap sweep
+"0x82702380" = { }  # 1 instructions, gap sweep
+"0x827023AC" = { }  # 1 instructions, gap sweep
+"0x827023D4" = { }  # 1 instructions, gap sweep
+"0x8270B108" = { }  # 1 instructions, gap sweep
+"0x8271A7E0" = { }  # 1 instructions, gap sweep
+"0x82722300" = { }  # 1 instructions, gap sweep
+"0x82722338" = { }  # 1 instructions, gap sweep
+"0x8276D688" = { }  # 1 instructions, gap sweep
+"0x8277BB1C" = { }  # 1 instructions, gap sweep
+"0x827CA96C" = { }  # 1 instructions, gap sweep
+"0x827F0674" = { }  # 1 instructions, gap sweep
+"0x827F572C" = { }  # 8 instructions, gap sweep
+"0x8285E96C" = { }  # 1 instructions, gap sweep
+"0x828ADBD0" = { }  # 2 instructions, gap sweep
+"0x828B3B40" = { }  # 1 instructions, gap sweep
+"0x828B3B78" = { }  # 1 instructions, gap sweep
+"0x828BA68C" = { }  # 1 instructions, gap sweep
+"0x828CA298" = { }  # 1 instructions, gap sweep
+"0x828F1190" = { }  # 1 instructions, gap sweep
+"0x828F2D2C" = { }  # 1 instructions, gap sweep
+
+# Removed (2026-10-30, the codegen after the first gap sweep: "Jump target ... unresolved at bctr" / "Unresolved conditional
+# branch"): 0x823086E8, 0x8230DCDC, 0x82403060, 0x82454254, 0x8255BCD4, 0x82707588, 0x82710110 (the pointer sweep took the
+# lis/addi that builds a jump table base 0x14 bytes before the cases, right after the bctr, for a callback: they are
+# case code of their parent), and the gap-sweep entries 0x82244070, 0x82462554, 0x824627AC, 0x8271D1CC, 0x8271D1D0,
+# 0x8271D204, 0x8271D210 (blocks inside a parent the scanner had not reached: their parents branch across them).
