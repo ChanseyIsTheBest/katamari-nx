@@ -799,10 +799,14 @@ def localize(index, hooks, reach, root, what, opts, out_dir, quiet=False, hand=N
         if closed:
             stats['calls_closed'] += 1
             if b in hand:
-                # The hand-written native first; the generated copy of the callee when it declines. The native
-                # changes no register, so nothing is loaded back after it.
+                # The hand-written native first; the generated copy of the callee when it declines. katamari-nx
+                # (2026-10-30 evening): what the callee may change is loaded back after EITHER path. banjo-nx's
+                # natives write no register (the load-back was only on the declined path), but Katamari's write the
+                # registers their originals write back (hand.txt exact=: the hash and the comparison return r3), and
+                # a caller that read r3 after an inlined native that ran got its own stale r3 (sub_82737F80 and
+                # sub_8271F9C0 took the other branch; the first diet PC run crashed after them).
                 return ('{ ' + before + 'if (!::banjo::hand::n_%s::Native(ctx, base, s)) { f_%s(ctx, base, s); '
-                        'if (s.Stopped()) return;%s } else if (s.Stopped()) return; }' % (hand[b]['id'], b, after))
+                        'if (s.Stopped()) return; } else if (s.Stopped()) return;%s }' % (hand[b]['id'], b, after))
             return '{ ' + before + 'f_%s(ctx, base, s); if (s.Stopped()) return;' % b + after + ' }'
         stats['calls_open'] += 1
         return '{ if (s.Open()) return; ' + before + m.group(0) + after + ' }'

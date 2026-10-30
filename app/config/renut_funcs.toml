@@ -18,3 +18,41 @@
 # the whole body (the generator emits no fall-through into a next function, and refuses overlapping declarations).
 "0x822AC5E8" = { end = 0x822AC5F0 }
 "0x82685520" = { end = 0x826855C8 }
+
+# katamari-nx (2026-10-30 evening, the register-diet codegen): split pieces that read non-volatile registers their
+# parent set up (tools/read_before_write.py on code generated WITH non_volatile_as_local, out/audit/gen2; the pieces
+# also listed in overrides.toml carry the mark there). Without it sub_824CF3F8 read a zeroed r31 and handed a wrong
+# frame to its __finally funclet: the boot crash of the first diet build.
+"0x824C97F0" = { share_registers = true }  # reads r30
+"0x824C9B80" = { share_registers = true }  # reads r30
+"0x827F91D4" = { share_registers = true }  # reads r31
+"0x828C74A8" = { share_registers = true }  # reads r24 r26 r27 r29
+"0x828C8DE8" = { share_registers = true }  # reads r30
+"0x828CC530" = { share_registers = true }  # reads r22
+"0x828D0AC8" = { share_registers = true }  # reads r29
+"0x828D27B0" = { share_registers = true }  # reads r30
+"0x828D2B28" = { share_registers = true }  # reads r17
+"0x828D6CA0" = { share_registers = true }  # reads r25
+"0x828D7780" = { share_registers = true }  # reads r15 r17 r27 r28 r29 r30
+"0x828E4F78" = { share_registers = true }  # reads r18 r19 r28
+"0x828ED618" = { share_registers = true }  # reads f26 f27 f28 f29 f30 r14 r22 r23 r26 r31
+"0x82904F58" = { share_registers = true }  # reads r22 r24
+"0x82912CF0" = { share_registers = true }  # reads r30
+"0x82917C90" = { share_registers = true }  # reads r26
+"0x8291A458" = { share_registers = true }  # reads r28 r29
+"0x82927520" = { share_registers = true }  # reads f31 r16 r17 r18 r23 r25 r28 r29
+"0x8292FC58" = { share_registers = true }  # reads r24 r25 r26
+"0x829304B8" = { share_registers = true }  # reads r25 r29
+"0x82939A30" = { share_registers = true }  # reads r28
+"0x8293C418" = { share_registers = true }  # reads r31
+"0x8293D220" = { share_registers = true }  # reads r22
+"0x829462A0" = { share_registers = true }  # reads r28 r30
+"0x829469A8" = { share_registers = true }  # reads r16 r22 r24 r25 r29
+"0x82949378" = { share_registers = true }  # reads r20 r28 r29 r30
+"0x82949DE8" = { share_registers = true }  # reads f31 r22 r23 r24 r25
+"0x82970030" = { share_registers = true }  # reads r28
+"0x829EC658" = { share_registers = true }  # reads v69 v72
+"0x829ECA00" = { share_registers = true }  # reads v69
+"0x829ECCC0" = { share_registers = true }  # reads v69 v72
+"0x829ECF28" = { share_registers = true }  # reads v69
+"0x829EE070" = { share_registers = true }  # reads v64 v65

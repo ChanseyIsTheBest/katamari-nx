@@ -323,3 +323,48 @@ trace of the post-processing), starting with the multisampled depth resolve's fl
 render thread between its halves, as much as most targets; only the fast draw path (25) stood out (render thread
 8.6 vs 9.8 ms). **The user (16:5x): the emulator is not for performance A/Bs**, only for the picture; the A/B is the
 console's (renut_ab.toml in the package).
+
+## Codegen options: the register diet (2026-10-30 evening, the user's request)
+
+Every codegen option banjo-nx uses is now on. The three this morning left out needed this game's audits, done on a
+codegen WITHOUT them (`out/audit/gen`, 55 s) and checked on one WITH them (`out/audit/gen2`):
+
+- `non_volatile_as_local` (r14-r31, f14-f31, v14-v31 / v64-v127 as C++ locals; the `__savegprlr` / `__restgprlr`
+  helpers and their guest-stack traffic go): `tools/read_before_write.py --noreturn=827EB3B0` must run on code
+  generated WITH the option (it reads registers spelled as locals; my first run, on code without it, saw nothing, and
+  the first diet build crashed at boot: sub_824CF3F8, a split tail of sub_824CEC10, computed its `__finally` funclet's
+  frame from a zeroed local r31). On `out/audit/gen2`: 51 functions. 44 split pieces read non-volatiles their parent
+  set up: `share_registers` (33 in config/renut_funcs.toml, 11 on their pointer-sweep entries in overrides.toml);
+  setjmp and its four callers save CR / XER / registers into the jump buffer (the codegen's setjmp handling: unmarked,
+  as banjo-nx); sub_82627520 / sub_82627B58 read v69 / v72, which nothing in the game sets: `non_volatile_as_local_keep
+  = ["v69", "v72"]` (they read what is left there, as on the console). After the marks: only the five setjmp lines.
+- `elide_lr_stores`: the link register is read by prologue saves, setjmp / longjmp (handled at their call sites) and
+  five C runtime exception helpers that only save and restore it; the runtime never runs the guest's exception dispatch.
+- `non_argument_as_local` (r0, r2, r11, r12, f0, v32-v63 as locals): `tools/non_argument_audit.py`: ENTRY 6,595 (218
+  save / restore helpers, kept by name; 6,357 MSVC unwind funclets, `addi r31,r12,-N`; two functions taking r11; a
+  vector codec family saving / restoring v32-v63 through sub_829E70A8 / sub_829E73F0), RET 14, HANDOVER 0. All 6,379
+  ENTRY / RET functions are in `non_argument_as_local_keep`.
+- With the options: `non_argument_audit.py --with-option`: 29,265 functions localize them, HANDOVER 0;
+  `read_before_write.py --volatile`: 0.
+
+Why it matters on ARM: in the Ryujinx profile of rc1 the save / restore helpers were ~20 % of the game's main thread.
+
+## Hot functions on ARM (2026-10-30 evening)
+
+Profile: a 15-minute Ryujinx session of the package rc1 (`out/emu_runs/emu10_profile/rex_profile.log`, the SDK's
+1 kHz stack sampler on the ARM code; under Ryujinx it writes `sdmc:/switch/rex_profile.log`, one folder up, because
+the emulator passes another program path), mapped with its ELF by `tools/switch_hot_bulk.py`. The main thread: host
+memset 12 %, the register save / restore helpers ~20 %, localized copies 41 %, generated code 16 %. The ARM ranking
+differs from the PC's: memcpy (sub_827E6F50) is the second-hottest guest function (1,371 samples), the vector memcpy
+sub_824BFE50 third (1,230); the PC's matrix compare and visibility test barely run.
+
+- Machine-optimised: `localized_bulk.txt` = every generated function with 2+ ARM samples: 218 (31 tiny leaves and 11
+  forms the copy tool refuses left out), 217 after the string hash became a hand-written native; with `localized.txt`'s
+  107, 324 functions run as localized copies.
+- Hand-written natives added (`hand.txt`): memcpy (banjo-nx's native: the same contract, `std r3,-8(r1)` first and
+  `ld r3,-8(r1)` at its four returns), the string hash sub_8266AF60 (Jenkins' one-at-a-time), the 4-float parameter set
+  sub_8271FAD0, the word copy sub_827E73A8 (also inlined into the vector memcpy's copy), the identity matrix
+  sub_827595D0; plus the matrix comparison sub_82759A00 (hot on the PC). The vector memcpy itself stays a machine copy:
+  it builds a frame and calls two copy routines whose stack temporaries a native would have to reproduce byte for byte.
+- The natives follow the register-diet codegen: each writes back exactly the registers its processed original writes
+  back (r11, f0, v29-v31 are locals now: the first natives no longer write them).

@@ -144,6 +144,29 @@ REXCVAR_DEFINE_BOOL(katamari_hand_matrix_translation, true, "Katamari/Enhancemen
                     "written at once. Declines a signalling NaN and an overlap; checked by the guards of its hooks")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+REXCVAR_DEFINE_BOOL(katamari_hand_matrix_identity, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's identity-matrix builder (sub_827595D0): the 16 words written "
+                    "at once; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_matrix_compare, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's matrix comparison within a tolerance (sub_82759A00): the same "
+                    "single-precision differences and compares in registers, the stack temporary written once; "
+                    "checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_copy_words, true, "Katamari/Enhancements",
+                    "Hand-written native of the C runtime's word copy (sub_827E73A8): overlapping 16/8/4/2-byte moves "
+                    "instead of byte and word loops; declines a forward overlap; checked by the guards of its hooks")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_string_hash, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's string hash (sub_8266AF60, Jenkins' one-at-a-time): the bytes "
+                    "walked through a host pointer with the same 64-bit adds and 32-bit shifts; checked by the guards "
+                    "of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_vec4_update, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's 4-float parameter set with change detection (sub_8271FAD0): "
+                    "the four compares and the writes in registers; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace banjo::hand {
 
 uint8_t g_state[kNatives] = {};
@@ -151,11 +174,16 @@ uint8_t g_state[kNatives] = {};
 namespace {
 constexpr const char* kNames[kNatives] = {"memcpy", "memset", "constant writers", "state flush writers",
                                           "XAudio voice filter", "XAudio channel mix", "matrix copy",
-                                          "matrix multiplies", "translation matrix"};
+                                          "matrix multiplies", "translation matrix", "identity matrix",
+                                          "matrix comparison", "word copy", "string hash",
+                                          "4-float parameter set"};
 constexpr const char* kKeys[kNatives] = {"banjo_hand_memcpy", "banjo_hand_memset", "banjo_hand_constants",
                                          "banjo_hand_state_flush", "banjo_hand_audio_filter",
                                          "banjo_hand_xaudio_mix", "katamari_hand_matrix_copy",
-                                         "katamari_hand_matrix_multiply", "katamari_hand_matrix_translation"};
+                                         "katamari_hand_matrix_multiply", "katamari_hand_matrix_translation",
+                                         "katamari_hand_matrix_identity", "katamari_hand_matrix_compare",
+                                         "katamari_hand_copy_words", "katamari_hand_string_hash",
+                                         "katamari_hand_vec4_update"};
 bool Own(uint32_t which) {
   return which == kMemcpy           ? bool(REXCVAR_GET(banjo_hand_memcpy))
          : which == kMemset         ? bool(REXCVAR_GET(banjo_hand_memset))
@@ -165,7 +193,12 @@ bool Own(uint32_t which) {
          : which == kXAudioMix      ? bool(REXCVAR_GET(banjo_hand_xaudio_mix))
          : which == kMatCopy        ? bool(REXCVAR_GET(katamari_hand_matrix_copy))
          : which == kMatMul         ? bool(REXCVAR_GET(katamari_hand_matrix_multiply))
-                                    : bool(REXCVAR_GET(katamari_hand_matrix_translation));
+         : which == kMatTranslation ? bool(REXCVAR_GET(katamari_hand_matrix_translation))
+         : which == kMatIdentity    ? bool(REXCVAR_GET(katamari_hand_matrix_identity))
+         : which == kMatCompare     ? bool(REXCVAR_GET(katamari_hand_matrix_compare))
+         : which == kCopyWords      ? bool(REXCVAR_GET(katamari_hand_copy_words))
+         : which == kStringHash     ? bool(REXCVAR_GET(katamari_hand_string_hash))
+                                    : bool(REXCVAR_GET(katamari_hand_vec4_update));
 }
 // banjo_hot_count: calls by size, bucket 0 = size 0, bucket k = sizes [2^(k-1), 2^k).
 std::atomic<uint64_t> g_sizes[kNatives][34];

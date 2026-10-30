@@ -69,7 +69,12 @@ enum : uint32_t {
   kMatCopy = 6,
   kMatMul = 7,
   kMatTranslation = 8,
-  kNatives = 9
+  kMatIdentity = 9,
+  kMatCompare = 10,
+  kCopyWords = 11,
+  kStringHash = 12,
+  kVec4Update = 13,
+  kNatives = 14
 };
 extern uint8_t g_state[kNatives];
 uint8_t Init(uint32_t which);
@@ -800,7 +805,8 @@ namespace katamari {
 // r5): rows a0..a3 of the first matrix (transposed in registers by vmrghw / vmrglw), rows b0..b3 of the second,
 // sixteen vmsum4fp128 (simde_mm_dp_ps, mask 0xFF, as the generated code computes them) and the result's rows stored to
 // r3. All eight loads come before the first store, as in the original (in-place calls are fine). Every register the
-// original writes is written with the value it leaves.
+// original writes back is written with the value it leaves: r8-r10 and v0-v13 (r11 and v29-v31 are locals of the
+// generated function since non_argument_as_local / non_volatile_as_local, 2026-10-30 evening).
 template <class S>
 [[gnu::always_inline]] inline bool MatMul(PPCContext& __restrict ctx, uint8_t* base, S& s, uint32_t a_va,
                                           uint32_t which) {
@@ -863,7 +869,6 @@ template <class S>
   ctx.r8.s64 = 64;
   ctx.r9.s64 = 16;
   ctx.r10.s64 = 32;
-  ctx.r11.s64 = ctx.r3.s64 + 64;
   PutV(ctx.v0, v0);
   PutV(ctx.v1, v1);
   PutV(ctx.v2, v2);
@@ -878,9 +883,6 @@ template <class S>
   PutV(ctx.v11, v11);
   PutV(ctx.v12, v12);
   PutV(ctx.v13, v13);
-  PutV(ctx.v29, v29);
-  PutV(ctx.v30, v30);
-  PutV(ctx.v31, v31);
   return true;
 }
 
@@ -888,8 +890,9 @@ template <class S>
 
 // sub_82759C98 - a 4x4 float matrix copy: r3 = destination, r4 = source; sixteen lfs f0 / stfs f0 pairs, word by
 // word upward (the hottest guest function of the PC profile: 5.2 % of every busy sample, called for each matrix the
-// game copies). Here: the 64 bytes as they are (a word copy upward is memmove's result for dst <= src). f0 ends as
-// the last word widened, as the original leaves it; the flush mode is not touched (the processed original's lfs /
+// game copies). Here: the 64 bytes as they are (a word copy upward is memmove's result for dst <= src). No register
+// is written: with non_argument_as_local (2026-10-30 evening) f0 is a local of the generated function; the flush mode
+// is not touched (the processed original's lfs /
 // stfs pairs are mode-free since the post-codegen passes: the PC guard found the first version switching it). Declined: a destination ahead of an overlapping source (the
 // original then copies words it already wrote), a signalling NaN among the words (the generated widening quiets it).
 namespace n_82759C98 {
@@ -905,11 +908,9 @@ template <class S>
   for (uint32_t k = 0; k < 16; ++k) nan |= uint32_t(katamari::Snan(katamari::LoadW(p + 4 * k)));
   if (nan) [[unlikely]] return false;
   s.Hand(kMatCopy, 64);
-  const double last = katamari::WidenF(katamari::LoadW(p + 60));
   if (!s.Note(dst, 64)) [[unlikely]] return true;
   ::banjo::hot::Card(base, dst, 64);
   detail::CopySmall(::banjo::hot::Raw(base, dst), p, 64);
-  ctx.f0.f64 = last;
   return true;
 }
 
@@ -937,7 +938,8 @@ template <class S>
 
 // sub_82759D20 - a translation matrix: r3 = identity with the last row (x, y, z, 1) from the three floats at r4. The
 // original loads 1.0 and 0.0 from the image's constants (0x82000B38 / 0x82000B34: read here too, not assumed) and
-// stores through f13 / f0, so f13 = the one, f0 = z widened and r11 = 0x82000000 (sign-extended) at its end.
+// stores through f13 / f0, so f13 = the one at its end (f0 and r11 are locals of the generated function since the
+// register-diet codegen of 2026-10-30 evening).
 // Declined: a signalling NaN among the five words, a destination that overlaps the three source floats (the original
 // interleaves those loads with its stores).
 namespace n_82759D20 {
@@ -965,9 +967,7 @@ template <class S>
     const uint32_t be = __builtin_bswap32(words[k]);
     std::memcpy(d + 4 * k, &be, 4);
   }
-  ctx.r11.s64 = -2113929216;
-  ctx.f13.f64 = katamari::WidenF(one);
-  ctx.f0.f64 = katamari::WidenF(z);
+  ctx.f13.f64 = katamari::WidenF(one);  // r11 and f0 are locals of the generated function (2026-10-30 evening)
   return true;
 }
 
@@ -983,5 +983,257 @@ template <class S>
 }
 
 }  // namespace n_827E7A40
+
+// ---------------------------------------------------------------------------------------------------------------------
+// katamari-nx (2026-10-30 evening): five more, chosen from the Ryujinx (ARM) profile of the package rc1
+// (docs/katamari-notes.md, "Hot functions on ARM").
+
+// sub_827E6F50 - Beautiful Katamari's XDK C runtime memcpy. Another XDK build than N&B's sub_82C111C0 (the block loops
+// are scheduled differently), with the same contract, read from its 278 instructions: `std r3,-8(r1)` first and
+// `ld r3,-8(r1)` at each of its four returns; a byte or word head up to 8-byte destination alignment, then 128-byte
+// blocks, doublewords, words or bytes by the source's alignment, every unit's loads ahead of its stores and the units
+// upward (for dst <= src the result is memmove's); sizes and addresses their 32-bit parts. So banjo-nx's native
+// (n_82C111C0, sa2-nx's) under the banjo_hand_memcpy key: it declines a forward overlap, ranges that wrap and a
+// destination over the save slot, writes the slot as the original does and leaves r3 as the original returns it.
+namespace n_827E6F50 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  return n_82C111C0::Native(ctx, base, s);
+}
+
+}  // namespace n_827E6F50
+
+// sub_827595D0 - the identity matrix: r3 = 16 words, 1.0 on the diagonal and 0.0 elsewhere, from the image's constants
+// (0x82000B38 / 0x82000B34, the translation builder's). f13 = 1.0 at its end (f0 and r11 are locals of the generated
+// function since 2026-10-30 evening); no flush-mode switch in the processed original. Declined: a destination over the two constants.
+namespace n_827595D0 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, [[maybe_unused]] S& s) {
+  if (!katamari::KOn(kMatIdentity)) [[unlikely]] return false;
+  const uint32_t dst = ctx.r3.u32;
+  if (!detail::Straight(dst, 64)) [[unlikely]] return false;
+  if (uint32_t(0x82000B34u + 7u - dst) < 64u + 7u) [[unlikely]] return false;  // dst covers the two constants
+  const uint32_t one = katamari::LoadW(::banjo::hot::Raw(base, 0x82000B38u));
+  const uint32_t zero = katamari::LoadW(::banjo::hot::Raw(base, 0x82000B34u));
+  if (katamari::Snan(one) | katamari::Snan(zero)) [[unlikely]] return false;
+  s.Hand(kMatIdentity, 64);
+  if (!s.Note(dst, 64)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, 64);
+  uint8_t* d = ::banjo::hot::Raw(base, dst);
+  const uint32_t be_one = __builtin_bswap32(one), be_zero = __builtin_bswap32(zero);
+  for (uint32_t k = 0; k < 16; ++k) std::memcpy(d + 4 * k, (k % 5 == 0) ? &be_one : &be_zero, 4);
+  ctx.f13.f64 = katamari::WidenF(one);  // r11 and f0 are locals of the generated function (2026-10-30 evening)
+  return true;
+}
+
+}  // namespace n_827595D0
+
+// sub_82759A00 - two 4x4 matrices equal within a tolerance: r3 = 1 when |b[k] - a[k]| < eps for all sixteen floats
+// (a at r3, b at r4, eps the image constant 0x350637BD, folded in the processed original), else 0 at the first k that
+// is not. Each step, as the original: fsubs (REX_FSUBS, the same expression), the single stored to the red-zone word
+// at -16(r1), its sign bit cleared there, read back and compared. So the word at -16(r1) ends as the last |difference|
+// (written once here; the guard compares memory), f13 as it widened, f12 as the last a[k] (from k = 1) and r3 = 0 / 1
+// (f0 and r11 are locals of the generated function); the flush mode switched off first, as the original does. cr6 is a local of the
+// generated function (not written back). Declined: a red-zone word inside either matrix (the original's stores there
+// would change what it reads next).
+namespace n_82759A00 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kMatCompare)) [[unlikely]] return false;
+  const uint32_t a_va = ctx.r3.u32, b_va = ctx.r4.u32, slot = ctx.r1.u32 - 16u;
+  if (!detail::Straight(a_va, 64) || !detail::Straight(b_va, 64) || !detail::Straight(slot, 4)) [[unlikely]]
+    return false;
+  if (uint32_t(slot + 3u - a_va) < 64u + 3u || uint32_t(slot + 3u - b_va) < 64u + 3u) [[unlikely]] return false;
+  s.Hand(kMatCompare, 64);
+  ctx.fpscr.disableFlushMode();
+  const uint8_t* pa = ::banjo::hot::Raw(base, a_va);
+  const uint8_t* pb = ::banjo::hot::Raw(base, b_va);
+  const uint32_t eps_bits = 0x350637BDu;
+  float eps_f;
+  std::memcpy(&eps_f, &eps_bits, 4);
+  const double eps = double(eps_f);  // f0 in the original
+  uint32_t k = 0, masked = 0;
+  double a_k = 0.0, abs_k = 0.0;
+  bool all = true;
+  for (;; ++k) {
+    float fa, fb;
+    const uint32_t wa = katamari::LoadW(pa + 4 * k), wb = katamari::LoadW(pb + 4 * k);
+    std::memcpy(&fa, &wa, 4);
+    std::memcpy(&fb, &wb, 4);
+    a_k = double(fa);
+    const double diff = REX_FSUBS(double(fb), a_k);
+    const float single = float(diff);
+    uint32_t bits;
+    std::memcpy(&bits, &single, 4);
+    masked = bits & 0x7FFFFFFFu;
+    float abs_f;
+    std::memcpy(&abs_f, &masked, 4);
+    abs_k = double(abs_f);
+    if (!(abs_k < eps)) {
+      all = false;
+      break;
+    }
+    if (k == 15) break;
+  }
+  if (!s.Note(slot, 4)) [[unlikely]] return true;
+  const uint32_t be = __builtin_bswap32(masked);
+  std::memcpy(::banjo::hot::Raw(base, slot), &be, 4);
+  ctx.f13.f64 = abs_k;
+  if (k != 0) ctx.f12.f64 = a_k;
+  ctx.r3.u64 = all ? 1u : 0u;  // f0 and r11 are locals of the generated function (2026-10-30 evening)
+  return true;
+}
+
+}  // namespace n_82759A00
+
+// sub_827E73A8 - a C runtime copy of r5 bytes from r4 to r3 (r3 is not written): single bytes until the destination
+// cursor is 4-aligned (ctr = r5 + 1 bounds them), then words (lwz, or four lbz assembled when the source is not
+// aligned: the same bytes), then up to three bytes; every unit loaded before it is stored, upward. Declined: anything
+// in the upper half of r5 (ctr is 64-bit), a destination ahead of an overlapping source, ranges that wrap. Scratch it
+// leaves and this does not reproduce (the guard skips them): r0, r4-r10, ctr.
+namespace n_827E73A8 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, [[maybe_unused]] S& s) {
+  if (!katamari::KOn(kCopyWords)) [[unlikely]] return false;
+  if (ctx.r5.u64 >> 32) [[unlikely]] return false;
+  const uint32_t dst = ctx.r3.u32, src = ctx.r4.u32, n = ctx.r5.u32;
+  s.Hand(kCopyWords, n);
+  if (n == 0) return true;
+  if (uint32_t(dst - src - 1u) < n - 1u) [[unlikely]] return false;  // dst > src, dst - src < n
+  if (!detail::Straight(dst, n) || !detail::Straight(src, n)) [[unlikely]] return false;
+  if (!s.Note(dst, n)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, n);
+  uint8_t* d = ::banjo::hot::Raw(base, dst);
+  const uint8_t* p = ::banjo::hot::Raw(base, src);
+  if (n <= 64)
+    detail::CopySmall(d, p, n);
+  else if (n <= 128)
+    detail::CopyMedium(d, p, n);
+  else
+    std::memmove(d, p, n);  // dst < src overlapping (the forward copy is memmove's then) or apart
+  return true;
+}
+
+}  // namespace n_827E73A8
+
+// sub_8266AF60 - Jenkins' one-at-a-time hash of the NUL-terminated string whose address is the word at r3: for each byte
+// h += c, h += h << 10, h ^= h >> 6; then h += h << 3, h ^= h >> 11, h += h << 15. In 64-bit registers as the original
+// (the adds are 64-bit, every shift a 32-bit rlwinm), so r3 and r9 keep the carries above bit 31 the original keeps.
+// The original leaves r3 (the hash), r8, r9 and r10 (leaf locals written back at its return; r8 untouched for the empty
+// string); r11 is a local of the generated function. Declined: a string in the physical-address range (the generated
+// code's loads there go through another view on the PC) or one longer than 64 KB (the walk stops there).
+namespace n_8266AF60 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, [[maybe_unused]] S& s) {
+  if (!katamari::KOn(kStringHash)) [[unlikely]] return false;
+  const uint32_t at = ctx.r3.u32;
+  if (!detail::Straight(at, 4)) [[unlikely]] return false;
+  const uint32_t str = katamari::LoadW(::banjo::hot::Raw(base, at));
+  if (str >= 0xDFFF0000u) [[unlikely]] return false;
+  const uint8_t* p = ::banjo::hot::Raw(base, str);
+  uint64_t r8 = ctx.r8.u64, r9 = 0, r10 = p[0];
+  uint32_t k = 0;
+  while (r10 != 0) {
+    r9 = r10 + r9;
+    ++k;
+    r8 = uint32_t(uint32_t(r9) << 10);
+    r9 = r8 + r9;
+    if (k >= 0x10000u) [[unlikely]] return false;  // nothing written yet
+    r10 = p[k];
+    r8 = uint32_t(r9) >> 6;
+    r9 = r8 ^ r9;
+  }
+  s.Hand(kStringHash, k);
+  uint64_t r11 = uint32_t(uint32_t(r9) << 3);
+  r11 = r9 + r11;
+  r10 = uint32_t(r11) >> 11;
+  r11 = r10 ^ r11;
+  r10 = uint32_t(uint32_t(r11) << 15);
+  ctx.r3.u64 = r10 + r11;
+  ctx.r8.u64 = r8;
+  ctx.r9.u64 = r9;
+  ctx.r10.u64 = r10;
+  return true;
+}
+
+}  // namespace n_8266AF60
+
+// sub_8271FAD0 - a 4-float parameter set with change detection: element r4 (-1: nothing) of the table at
+// [[r3 + 372] + 16], 72 bytes each. When the four floats at r5 differ from the element's first four (fcmpu: a NaN
+// differs, -0.0 equals 0.0), or they are equal but the word at +64 is not 4, the element gets the four floats (each
+// quieted as the processed original's lfs / stfs pairs give it: QuietSingleBits), +64 = 4 and the halfword at +68 one
+// more; otherwise nothing is written. As the processed original: the flush mode switched off after the -1 test; r10,
+// f12 and f13 left as it leaves them (f12 only from the second compare on); f0 and r11 are its locals. Declined:
+// source and element overlapping, ranges that are not one stretch of memory.
+namespace n_8271FAD0 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kVec4Update)) [[unlikely]] return false;
+  if (ctx.r4.s32 == -1) return true;
+  const uint32_t holder = ctx.r3.u32 + 372u, src = ctx.r5.u32;
+  if (!detail::Straight(holder, 4) || !detail::Straight(src, 16)) [[unlikely]] return false;
+  const uint32_t table_ptr = katamari::LoadW(::banjo::hot::Raw(base, holder)) + 16u;
+  if (!detail::Straight(table_ptr, 4)) [[unlikely]] return false;
+  const uint64_t r10a = uint32_t(ctx.r4.u32 << 3);
+  const uint64_t r10b = ctx.r4.u64 + r10a;
+  const uint32_t offset = uint32_t(uint32_t(r10b) << 3);
+  const uint32_t el = uint32_t(uint64_t(katamari::LoadW(::banjo::hot::Raw(base, table_ptr))) + offset);
+  if (!detail::Straight(el, 70)) [[unlikely]] return false;
+  if (uint32_t(src - el) < 70u || uint32_t(el - src) < 16u) [[unlikely]] return false;
+  ctx.fpscr.disableFlushMode();
+  s.Hand(kVec4Update, 16);
+  const uint8_t* ps = ::banjo::hot::Raw(base, src);
+  uint8_t* pe = ::banjo::hot::Raw(base, el);
+  uint32_t ws[4], we[4];
+  for (uint32_t k = 0; k < 4; ++k) {
+    ws[k] = katamari::LoadW(ps + 4 * k);
+    we[k] = katamari::LoadW(pe + 4 * k);
+  }
+  auto widen = [](uint32_t w) {
+    float f;
+    std::memcpy(&f, &w, 4);
+    return double(f);  // the original's double(REX_LOAD_D_F32(...)) with the flush mode off
+  };
+  bool equal = true;
+  uint32_t k = 0;
+  for (; k < 4; ++k) {
+    ctx.f13.f64 = widen(we[k]);
+    if (k) ctx.f12.f64 = widen(ws[k]);
+    if (!(ctx.f13.f64 == (k ? ctx.f12.f64 : widen(ws[0])))) {
+      equal = false;
+      break;
+    }
+  }
+  if (equal) {
+    const uint32_t state = katamari::LoadW(pe + 64);
+    if (state == 4u) {
+      ctx.r10.u64 = state;
+      return true;
+    }
+  }
+  if (!s.Note(el, 16) || !s.Note(el + 64u, 6)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, el, 70);
+  for (uint32_t i = 0; i < 4; ++i) {
+    const uint32_t be = __builtin_bswap32(::rex::ppc::QuietSingleBits(ws[i]));
+    std::memcpy(pe + 4 * i, &be, 4);
+  }
+  const uint32_t four = __builtin_bswap32(4u);
+  std::memcpy(pe + 64, &four, 4);
+  uint16_t count;
+  std::memcpy(&count, pe + 68, 2);
+  const uint64_t next = uint64_t(__builtin_bswap16(count)) + 1u;
+  const uint16_t be16 = __builtin_bswap16(uint16_t(next));
+  std::memcpy(pe + 68, &be16, 2);
+  ctx.r10.u64 = next;
+  return true;
+}
+
+}  // namespace n_8271FAD0
 
 }  // namespace banjo::hand

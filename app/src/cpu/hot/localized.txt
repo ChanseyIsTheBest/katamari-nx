@@ -7,6 +7,8 @@
 82759780 4x4 matrix multiply, three operands (hand-written native; rank 11)
 82759D20 translation matrix (hand-written native; rank 20)
 827E7A40 C runtime memset (hand-written native, banjo-nx's)
+827E73A8 C runtime word copy (hand-written native, 2026-10-30 evening)
+8266AF60 string hash (hand-written native, 2026-10-30 evening; ARM 187 samples)
 # The top 100 others of the profile (machine-optimised: localized copies, small callees inlined, direct dispatch).
 # Left out (the copy tool refuses them: an atomic compare-and-swap, state shared with other threads): 826A13D8,
 # 82210630, 826E9E38; the next ones of the profile take their places.

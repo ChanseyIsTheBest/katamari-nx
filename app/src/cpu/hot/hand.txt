@@ -4,13 +4,23 @@
 #
 #   <address or generated name> [id=<namespace suffix>] [exact=<registers>]
 #
-# exact: registers the original writes that the native leaves exactly as the original does. Katamari's matrix natives
-# write every register their originals write (nothing skipped by the guard); the memset is banjo-nx's (scratch r0,
-# r4-r6 not reproduced, as there).
-# Chosen 2026-10-30 from the PC profile out/pc_runs/renut4 (docs/katamari-notes.md, "Hot functions").
+# exact: registers the original writes back that the native leaves exactly as the original does. Since the
+# register-diet codegen (2026-10-30 evening: non_argument_as_local, non_volatile_as_local) the originals write back
+# only r1, r3-r10, f1-f13 and v0-v13 (r0, r2, r11, r12, f0, the non-volatiles and v32-v63 are locals of each generated
+# function); every native here writes exactly what its processed original writes back, except the C runtime's three
+# (memset, memcpy, the word copy), which leave the scratch registers r4-r10 as banjo-nx's do (the guard skips those).
+#
+# First five: 2026-10-30, from the PC profile (out/pc_runs/renut4). The rest: 2026-10-30 evening, from the Ryujinx
+# (ARM) profile of the package rc1 (out/emu_runs/emu10_profile), ARM samples in brackets.
 
-82759C98 exact=f0   # 4x4 matrix copy (PC rank 1: 5.2 % of busy samples)
-827598C0 exact=r8,r9,r10,r11,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v29,v30,v31   # 4x4 matrix multiply in place (rank 2)
-82759780 exact=r8,r9,r10,r11,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v29,v30,v31   # 4x4 matrix multiply, three operands (rank 11)
-82759D20 exact=r11,f0,f13   # translation matrix (rank 20)
+82759C98   # 4x4 matrix copy (PC rank 1; ARM 141)
+827598C0 exact=r8,r9,r10,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13   # 4x4 matrix multiply in place (ARM 81)
+82759780 exact=r8,r9,r10,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13   # 4x4 matrix multiply, three operands
+82759D20 exact=f13   # translation matrix
 827E7A40   # C runtime memset (banjo-nx's native: the same instructions)
+827E6F50 exact=r3   # C runtime memcpy (banjo-nx's native: the same contract) [ARM 1,371: the second-hottest guest function]
+8266AF60 exact=r3,r8,r9,r10   # string hash, Jenkins' one-at-a-time [ARM 187]
+8271FAD0 exact=r10,f12,f13   # 4-float parameter set with change detection [ARM 157]
+827E73A8   # C runtime word copy [ARM 33; inlined into the copies of the vector memcpy sub_824BFE50, ARM 1,230]
+827595D0 exact=f13   # identity matrix [ARM 27]
+82759A00 exact=r3,f12,f13   # matrix comparison within a tolerance (PC hot)
