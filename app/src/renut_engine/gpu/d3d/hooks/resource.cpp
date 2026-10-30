@@ -641,9 +641,10 @@ u32 LockResource(u32 resource, u32 mip_lock, u32 base_address, u32 mip_address, 
     return address;
   const u32 common = r[0];
   // katamari-nx (2026-10-30): does Beautiful Katamari read a texture on the CPU (a resolve result, which Renut does not
-  // write back to guest memory: sasrt-nx's resolve readback)? The first 24 texture / surface locks, to compare with
-  // the resolve destinations of the trace (banjo_renut_diag_resolve_trace).
-  if ((common & 0xF) == 3 || (common & 0xF) == 4) {
+  // write back to guest memory: sasrt-nx's resolve readback)? The first 24 READ-ONLY texture / surface locks (flag
+  // 0x10, a CPU read), to compare with the resolve destinations of the trace (banjo_renut_diag_resolve_trace). The
+  // first version logged every lock: at load time they are all writes (flags 0, the textures' uploads).
+  if (((common & 0xF) == 3 || (common & 0xF) == 4) && (flags & 0x10)) {
     static std::atomic<uint32_t> logged{0};
     if (logged.fetch_add(1, std::memory_order_relaxed) < 24)
       RGPU_INFO("[katamari] texture lock: resource {:08X} type {} address {:08X} size {} flags {:X}", resource,

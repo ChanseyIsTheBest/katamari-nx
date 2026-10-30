@@ -176,6 +176,12 @@ back to 11776, still the last boundary before Katamari's vertex declaration (+11
 | How state is set | through the hooked setters (87-88 % of draws change nearly every field group: UI draws) | 99.9 % hookable setters |
 | Memexport | none (no export functions in XDK 2.0.5632) | nearly every draw |
 
+Gameplay (emulator run `emu2`, the practice room with the scripted sticks rolling the katamari; one 10-s report):
+180,228 draws, all immediate (0 replayed from recorded command buffers), 100 % on the fast draw path, 78.8 % drawn
+from whole-buffer copies (with their base vertex), the texture slots answered 99.6 % by the slot's last or the memo,
+mesh objects answering 17,734 draws, no depth-only draws, no memexport; about 450 draws a frame. Same picture as the
+menus: direct calls, resources from Create hooks.
+
 So the record-time items built for N&B's recorded buffers (resource / geometry objects at record time, the replay
 stream, record lookups: A/B 45-50) have little or nothing to act on in the menus; the per-draw fast path, pipelines
 by content, pushed constants and whole-buffer copies apply as they are.
@@ -270,3 +276,21 @@ the generated original and compare every register, the flush mode and every byte
 
 Three functions of the profile cannot be copies (an atomic compare-and-swap: state shared with other threads):
 826A13D8, 82210630, 826E9E38; the next ones of the profile took their places.
+
+### Gameplay comparison: Switch vs PC (2026-10-30, open)
+
+Run `emu2` (Switch build, sticks wandering from 240 s) reached the practice room. Compared with PC runs of the same
+script (`out/pc_runs/sticks2` on D3D12, `out/pc_runs/vk_sticks` on Vulkan):
+
+- **Colours**: the Switch matches the PC on **Vulkan** (the brighter floor and walls); the PC on **D3D12** is darker
+  and more saturated. The PC reference of this port is Renut on Vulkan (the request's step 1), so the Switch is right
+  here; the D3D12 difference is a PC-only matter (D3D12 is not the reference back end; noted, not chased).
+- **Blur (open)**: on the Switch the whole 3D scene (room, katamari, Prince) is soft, as if the game's depth of field
+  had no focus; on both PC back ends gameplay is sharp. In the dialogue scenes both blur the background alike (the
+  game's own depth of field). The game resolves its 4x-multisampled depth buffer in four 320-pixel tiles into a texture
+  its depth-of-field pass reads (the trace: `resolve depth ... samples 4 -> texture ... at (320k, 0)`); Renut makes a
+  float target of it (ResolveDepth, the multisampled variant). banjo-nx ships `disable_msaa = true`, so Renut's
+  multisampled depth resolve on deko3d was never used there. Suspects: sampling a hardware-COMPRESSED multisampled
+  depth target (`banjo_deko3d_depth_compression`, on), or the multisampled path itself. Two diagnostic emulator runs
+  are prepared (`out/emu_nomsaa.toml`: MSAA off; `out/emu_nocomp.toml`: MSAA on, depth compression off); both were
+  held by the free-commit-memory rule (other sessions' processes left 8-11 GB).
