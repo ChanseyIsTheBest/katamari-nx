@@ -6,9 +6,13 @@
 #     katamari-nx.elf                  the unstripped ELF of this NRO (profiles map to it)
 #     source_<commit>.tgz              the source snapshot (git archive of the commit; no game data, no generated code)
 #     README.txt, PACKAGE_NOTES.txt
-# Nothing of the game's data goes in (the NRO holds the recompiled code; the DKSH cache is compiled shader code).
+# Nothing of the game's data goes in by default (the NRO holds the recompiled code; the DKSH cache is compiled shader
+# code). katamari-nx (2026-10-31, the user's request, for their own SD card): -GameRoot copies the extracted disc into
+# game_root and -Dlc the DLC packages into dlc (installed at the first start). Never into git, never uploaded.
 #   powershell -File tools/package_switch.ps1 -Name pgo_lto [-Build app\out\switch-pgo-use] [-Notes <file>]
-param([string]$Name = "package", [string]$Build = "app\out\switch", [string]$Notes = "")
+#       [-GameRoot D:\beautifulkatamari\game] [-Dlc D:\beautifulkatamari\dlc]
+param([string]$Name = "package", [string]$Build = "app\out\switch", [string]$Notes = "", [string]$GameRoot = "",
+      [string]$Dlc = "")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $free = (Get-PSDrive D).Free / 1GB
@@ -27,8 +31,22 @@ Copy-Item (Join-Path $dist "renut.toml"), (Join-Path $dist "renut_play.toml"), (
 Copy-Item (Join-Path $dist "configs\*.toml") (Join-Path $sd "configs")
 $cache = Join-Path $root "out\deko3d_shaders\deko3d_shaders.bin"
 if (Test-Path $cache) { Copy-Item $cache $sd }
-Set-Content -Path (Join-Path $sd "game_root\PUT_YOUR_GAME_FILES_HERE.txt") -Encoding ascii -Value `
-    "Extract your own Beautiful Katamari disc here: default.xex, the .dat files, data/ and the rest (README.txt)."
+if ($GameRoot) {
+    $need = ((Get-ChildItem $GameRoot -Recurse -File | Measure-Object -Sum Length).Sum + 1GB) / 1GB
+    if ((Get-PSDrive D).Free / 1GB -lt $need) { throw ("D: has too little space for the game files ({0:N1} GB needed)" -f $need) }
+    & robocopy $GameRoot (Join-Path $sd "game_root") /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy of the game files failed ($LASTEXITCODE)" }
+} else {
+    Set-Content -Path (Join-Path $sd "game_root\PUT_YOUR_GAME_FILES_HERE.txt") -Encoding ascii -Value `
+        "Extract your own Beautiful Katamari disc here: default.xex, the .dat files, data/ and the rest (README.txt)."
+}
+New-Item -ItemType Directory -Force (Join-Path $sd "dlc") | Out-Null
+if ($Dlc) {
+    Copy-Item (Join-Path $Dlc "*") (Join-Path $sd "dlc") -Force
+} else {
+    Set-Content -Path (Join-Path $sd "dlc\PUT_THE_DLC_PACKAGES_HERE.txt") -Encoding ascii -Value `
+        "Optional: Beautiful Katamari's DLC packages (Xbox 360 LIVE files, content type 2) here; installed at the first start."
+}
 $npdm = Join-Path $out "COPY_TO_SD_ROOT\atmosphere\contents\05D6EA1333487100\exefs"
 New-Item -ItemType Directory -Force $npdm | Out-Null
 Copy-Item (Join-Path $root "tools\forwarder\katamari_main.npdm") (Join-Path $npdm "main.npdm")

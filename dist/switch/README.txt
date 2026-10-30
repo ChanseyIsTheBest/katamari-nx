@@ -15,6 +15,9 @@ sdmc:/switch/katamari-nx/katamari-nx.nro      the program
 sdmc:/switch/katamari-nx/renut.toml           settings (copy one of the tomls below over it)
 sdmc:/switch/katamari-nx/game_root/           the disc's files: default.xex, d02.dat-d05.dat, data/, alchemy.ini ...
                                               (extract your ISO; the ISO itself is not read)
+sdmc:/switch/katamari-nx/dlc/                 the DLC packages (Xbox 360 LIVE files, content type 2), installed at the
+                                              first start into sdmc:/switch/katamari-nx/renut/ (dlc/installed.txt lists
+                                              them); all 16 of Beautiful Katamari's packs load
 
 The tomls
 ---------

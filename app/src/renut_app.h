@@ -15,8 +15,9 @@
 #include "renut_engine/Timer.h"
 #include "renut_engine/Fps.h"
 #include "renut_engine/hooks.h"
-// katamari-nx: N&B's title update and DLC installer are not part of this port (Beautiful Katamari has no title update
-// in the user's files).
+// katamari-nx: N&B's title update is not part of this port (Beautiful Katamari has no title update in the user's
+// files). The DLC installer is (2026-10-31, the user's 16 DLC packages): reNut upstream's, game-agnostic.
+#include "renut_engine/dlc_install.h"
 #include "profiler/profiler.h"
 #include "profiler/profiler_overlay.h"
 #include "me/me_native_system.h"
@@ -179,6 +180,9 @@ public:
 #endif
 
     void OnPostSetup() override {
+        // katamari-nx (2026-10-31): DLC packages in the "dlc" folder next to the NRO / exe installed before the game
+        // starts (reNut upstream's installer, renut_engine/dlc_install.cpp, as banjo-nx does).
+        renut::dlc::InstallPackages(runtime());
         // One log line with every enhancement and whether it is active (src/cpu/banjo_enhancements.h).
         banjo::LogEnhancements();
         // PC: function-level CPU profile (banjo_pc_profile_s = N seconds per report; 0 = off; from futari-nx).
@@ -236,6 +240,7 @@ public:
                 paths.game_data_root = extracted;
             }
         }
+        renut::dlc::SetUserDataRoot(paths.user_data_root);  // the folder the DLC installer checks for installed ones
     }
 
 #if !REX_PLATFORM_SWITCH
@@ -245,6 +250,7 @@ public:
     {
         StartRenutRenderer();
         path_wizard_->Init(app_name_, defaults, [resume](rex::PathConfig resolved) {
+            renut::dlc::SetUserDataRoot(resolved.user_data_root);
             resume(resolved);
             });
         return std::nullopt;

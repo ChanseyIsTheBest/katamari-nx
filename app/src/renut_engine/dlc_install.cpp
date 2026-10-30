@@ -1,5 +1,6 @@
 // banjo-nx (2026-10-29): reNut upstream's DLC installer (ab60251, src/renut_engine/app/dlc_install.cpp; GPL-3.0, credit reNut),
-// the DLC folder next to the NRO / exe (sdmc:/switch/banjo-nx/dlc on the Switch).
+// the DLC folder next to the NRO / exe (sdmc:/switch/banjo-nx/dlc on the Switch). katamari-nx (2026-10-31): the same
+// file, game-agnostic (the running title's packages only): sdmc:/switch/katamari-nx/dlc, Beautiful Katamari's 16 packs.
 #include "renut_engine/dlc_install.h"
 
 #include <algorithm>

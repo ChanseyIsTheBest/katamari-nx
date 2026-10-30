@@ -75,6 +75,8 @@ endif()
 set(RENUT_SOURCES
     src/main.cpp
     src/katamari_keys.cpp
+    # katamari-nx (2026-10-31): DLC packages in the "dlc" folder next to the NRO installed at start (reNut upstream's).
+    src/renut_engine/dlc_install.cpp
 	src/renut_engine/FPS.cpp
     # CPU/GPU profiler ported from UnleashedRecomp-NX (see src/profiler/profiler.h).
     src/profiler/profiler.cpp

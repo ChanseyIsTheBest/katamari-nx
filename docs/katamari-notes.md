@@ -390,3 +390,15 @@ multisampled TLDS.LZ form, which Ryujinx decodes), `plume::Deko3DBindFragmentTex
 and Renut's ResolveDepth binds the depth target and its stencil view for the multisampled variant. After it: no
 warning, and the practice room is sharp in Ryujinx (`out/emu_runs/dof_fix1`), as on the PC's Vulkan build, the far
 background softened as the game intends. banjo-nx (MSAA off) does not hit it; the fix was sent to its session.
+
+## DLC (2026-10-31)
+
+The user's 16 DLC packs (`Beautiful_Katamari.rar`: Xbox 360 `LIVE` packages, title 4E4D07DC, content type 2, in the
+usual `content/0000000000000000/4E4D07DC/00000002/` layout; extracted to `D:eautifulkatamari\dlc`, flat). The SDK's
+content manager lists marketplace content from `<user data>/renut/0000000000000000/4E4D07DC/00000002/` as unpacked
+folders; reNut upstream's installer (`renut_engine/dlc_install.cpp`, game-agnostic: the running title's type-2 packages
+only; banjo-nx uses it) unpacks the packages in a `dlc` folder next to the NRO at the first start
+(`ContentManager::InstallContent`: the STFS package mounted and extracted, the display name kept). Wired back into
+`renut_app.h` (OnPostSetup, OnConfigurePaths, the PC path wizard). Ryujinx run `dlc1`: 16 installed, the game's
+enumeration lists 16 and opens each one (`XamContentCreate ... type 00000002 ... open`), no error. What each pack adds in
+game was not walked through with the scripted pad.
