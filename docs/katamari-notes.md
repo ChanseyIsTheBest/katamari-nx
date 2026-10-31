@@ -509,3 +509,20 @@ opening movie's sound ordinary, no steady line.
 The host driver (`sdk/src/audio/switch/switch_audio_system.cpp`) plays silence for a client with nothing queued, so the
 beep is not the driver repeating a block: it comes from the game's side when a voice's decoded data is late (the same
 tone as rc3's movies, whose XMA feed was broken).
+
+**The constant tone and the missing sound effects (fixed, 2026-10-31).** The user: a constant, unchanging tone from
+the main menu on, gone only during loading screens; some gameplay sound effects never play. Reproduced in Ryujinx
+on the main menu (rc1 too: it was never the register diet): the game's mix turns into one line at 344.5 Hz
+(44,100 / 128) at a constant level; with `scribble_heap` (new memory filled with 0xCD) it comes at once, at 689 Hz.
+The per-context XMA dumps: three 44.1 kHz mono contexts decoded their first frame over and over and handed the game
+one 128-sample subframe again and again. `audio_xma_loop_trace` (a new diagnostic key, off by default) gave their
+fields: loop start 0, loop end 0, loop count 255, on buffers of 1, 2 and 8 packets: looping sounds whose loop is the
+whole buffer (XAudio's "loop length 0 is the entire buffer"). The decoder (`sdk/src/audio/xma_context.cpp`, from
+Xenia's newer XMA code) clamped the loop end up to bit 32, the first frame of every buffer, so it took the first
+frame for the loop end and replayed one subframe of it forever. A first fix that let them end stalled the game's
+audio engine on the menus (it waits on voices it believes are still looping), which confirmed the reading. The fix:
+a loop end below bit 32 is no loop end; with a loop count and no loop end, past the buffer's last frame (nothing valid
+in the other buffer) the read position goes back to the loop start (`XmaContext::LoopWholeBuffer`). Ryujinx after
+the fix: the main menu with clean and with scribbled memory, no repeated block (40 s each), the audio goes on; in
+gameplay ten contexts loop their whole buffer (the game's looping effects), no repeated block; the opening movie's
+sound ordinary.

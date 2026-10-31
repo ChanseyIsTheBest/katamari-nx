@@ -316,6 +316,14 @@ class XmaContext {
   uint8_t loop_frame_output_limit_ = 0;
   bool loop_start_skip_pending_ = false;
 
+  // katamari-nx (2026-10-31): a loop count with no loop end loops the whole buffer (xma_context.cpp).
+  bool LoopWholeBuffer(XMA_CONTEXT_DATA* data, uint32_t next_packet_index, uint32_t current_input_packet_count);
+
+  // katamari-nx (2026-10-31): audio_xma_loop_trace (xma_context.cpp), diagnostic only.
+  uint32_t trace_lines_ = 0;
+  uint32_t trace_last_offset_ = UINT32_MAX;
+  uint32_t trace_same_offset_ = 0;
+
   // banjo-nx (2026-10-27, #4 of the CPU-gap table: banjo_xma_frame_cache, xma_context.cpp). The frames given to the codec
   // since it was last opened, as a node of the shared cache (0: not known, nothing cached until the codec is opened
   // again), and the cached frames answered since that the codec has not decoded yet (decoded before the next frame

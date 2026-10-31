@@ -72,6 +72,11 @@ REXCVAR_DEFINE_BOOL(banjo_xma_frame_cache, true, "Banjo/Audio",
 REXCVAR_DEFINE_BOOL(banjo_xma_frame_cache_verify, false, "Banjo/Debug",
                     "XMA frame cache: decode every frame anyway and compare the cached samples with FFmpeg's; the log "
                     "counts the answers and the differences every 10 s");
+// katamari-nx (2026-10-31): the console's constant tone (an XMA context repeating one 128-sample subframe).
+REXCVAR_DEFINE_INT32(audio_xma_loop_trace, 0, "Audio",
+                     "Diagnostic: log the loop fields of a context each time it jumps back to its loop start "
+                     "or decodes the same frame several times in a row (at most this many lines a context; "
+                     "0 = off)");
 REXCVAR_DEFINE_INT32(banjo_xma_frame_cache_mb, 24, "Banjo/Audio",
                      "XMA frame cache: memory for the decoded frames (about 2 KB each); full, it starts again")
     .range(1, 256);
@@ -798,14 +803,14 @@ void XmaContext::SwapInputBuffer(XMA_CONTEXT_DATA* data) {
 }
 
 void XmaContext::UpdateLoopStatus(XMA_CONTEXT_DATA* data) {
-  if (data->loop_count == 0) {
+  // katamari-nx (2026-10-31): a loop end below the first frame is no loop (Decode).
+  if (data->loop_count == 0 || data->loop_end < kBitsPerPacketHeader) {
     return;
   }
 
   const uint32_t loop_start = std::max(kBitsPerPacketHeader, data->loop_start);
-  const uint32_t loop_end = std::max(kBitsPerPacketHeader, data->loop_end);
 
-  if (data->input_buffer_read_offset != loop_end) {
+  if (data->input_buffer_read_offset != data->loop_end) {
     return;
   }
 
@@ -1165,10 +1170,14 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
 
   // Loop-end frame: decode it here (output limited to loop_subframe_end),
   // jump to loop_start afterwards in the next-offset step.
+  // katamari-nx (2026-10-31): a loop end below the first frame (bit 32) is no loop. Beautiful Katamari plays its
+  // one-shot 44.1 kHz sounds with loop count 255 and loop start = end = 0; clamping the end up to 32 made the first
+  // frame a loop end, so each of them replayed one 128-sample subframe until the voice was reset (a constant
+  // 344.5 Hz tone on the menus, and those sounds never played). No frame starts below bit 32, so the hardware never
+  // meets such an end and the sound plays to its end.
   bool is_loop_end_frame = false;
-  if (data->loop_count > 0) {
-    const uint32_t loop_end = std::max(kBitsPerPacketHeader, data->loop_end);
-    is_loop_end_frame = (data->input_buffer_read_offset == loop_end);
+  if (data->loop_count > 0 && data->loop_end >= kBitsPerPacketHeader) {
+    is_loop_end_frame = (data->input_buffer_read_offset == data->loop_end);
   }
 
   if (!data->output_buffer_block_count) {
@@ -1207,6 +1216,9 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
 
   // Full packet skip (0xFF) -- no new frames begin in this packet.
   if (skip_count == 0xFF) {
+    if (LoopWholeBuffer(data, packet_index + 1, current_input_packet_count)) {
+      return;
+    }
     AdvanceInputPacket(data, packet_index + 1);
     return;
   }
@@ -1314,6 +1326,26 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
         std::min(decoded_start_skip, current_frame_remaining_subframes_);
   }
 
+  // katamari-nx (2026-10-31): audio_xma_loop_trace, diagnostic only (the console's constant tone).
+  if (const int32_t trace = REXCVAR_GET(audio_xma_loop_trace); trace > 0 && trace_lines_ < uint32_t(trace)) {
+    const uint32_t offset = data->input_buffer_read_offset;
+    trace_same_offset_ = offset == trace_last_offset_ ? trace_same_offset_ + 1 : 0;
+    trace_last_offset_ = offset;
+    if (is_loop_end_frame || trace_same_offset_ == 4) {
+      ++trace_lines_;
+      REXAPU_INFO(
+          "XMA trace: context {} {} at bit {} (packet {} of {}, buffer {}, valid {}{}): loop start {} end {} count {} "
+          "subframe end {} skip {}; frame {} bits, last in packet {}; {} Hz {}; output blocks {} read {} write {}",
+          id(), is_loop_end_frame ? "loop end" : "same frame 5 times", offset, packet_index,
+          current_input_packet_count, uint32_t(data->current_buffer), uint32_t(data->input_buffer_0_valid),
+          uint32_t(data->input_buffer_1_valid), uint32_t(data->loop_start), uint32_t(data->loop_end),
+          uint32_t(data->loop_count), uint32_t(data->loop_subframe_end), uint32_t(data->loop_subframe_skip),
+          packet_info.current_frame_size_, packet_info.isLastFrameInPacket(), GetSampleRate(data->sample_rate),
+          data->is_stereo ? "stereo" : "mono", uint32_t(data->output_buffer_block_count),
+          uint32_t(data->output_buffer_read_offset), uint32_t(data->output_buffer_write_offset));
+    }
+  }
+
   // Compute where to go next.
   if (is_loop_end_frame) {
     UpdateLoopStatus(data);
@@ -1327,7 +1359,42 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
     return;
   }
 
+  if (LoopWholeBuffer(data, next_packet_index, current_input_packet_count)) {
+    return;
+  }
   AdvanceInputPacket(data, next_packet_index);
+}
+
+// katamari-nx (2026-10-31): a loop count with no loop end (loop_end below the first frame, as Beautiful Katamari's
+// sounds come: start 0, end 0, count 255) loops the whole buffer, XAudio's "loop length 0 is the entire buffer":
+// past the buffer's last frame, with nothing valid in the other buffer, the read position goes back to the loop
+// start (the buffer's first frame for a start of 0) instead of releasing the buffer. Those voices then keep producing
+// as the game expects (before, they replayed one subframe of their first frame: the constant tone; letting them end
+// instead stalled the game's audio engine on the menus).
+bool XmaContext::LoopWholeBuffer(XMA_CONTEXT_DATA* data, uint32_t next_packet_index,
+                                 uint32_t current_input_packet_count) {
+  if (data->loop_count == 0 || data->loop_end >= kBitsPerPacketHeader ||
+      next_packet_index < current_input_packet_count || data->IsInputBufferValid(data->current_buffer ^ 1)) {
+    return false;
+  }
+  uint32_t start = GetNextPacketReadOffset(GetCurrentInputBuffer(data), 0, current_input_packet_count);
+  if (start == UINT32_MAX) {
+    return false;
+  }
+  if (data->loop_start >= start && data->loop_start < current_input_packet_count * kBitsPerPacket) {
+    start = data->loop_start;
+  }
+  data->input_buffer_read_offset = start;
+  loop_start_skip_pending_ = true;
+  if (data->loop_count < 255) {
+    data->loop_count--;
+  }
+  if (const int32_t trace = REXCVAR_GET(audio_xma_loop_trace); trace > 0 && trace_lines_ < uint32_t(trace)) {
+    ++trace_lines_;
+    REXAPU_INFO("XMA trace: context {} loops its whole buffer ({} packets): back to bit {}, count {}", id(),
+                current_input_packet_count, start, uint32_t(data->loop_count));
+  }
+  return true;
 }
 
 void XmaContext::ConvertFrame(const uint8_t** samples, bool is_two_channel,
