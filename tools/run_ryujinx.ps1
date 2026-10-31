@@ -19,6 +19,9 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $logs = Join-Path $sd "logs"
 if (Test-Path $logs) { Remove-Item -Recurse -Force $logs }
 $env:DOTNET_ROOT = "D:\New folder\dotnet10"
+# katamari-nx (2026-10-31): the run's own start time ($p.StartTime filtered nothing: every run copied every capture
+# the SD had ever kept, ~800 MB a run, 19 GB in out/emu_runs).
+$started = Get-Date
 $p = Start-Process -FilePath $ryu -ArgumentList @("-r", "`"$data`"", "`"$nro`"") -PassThru -WindowStyle Minimized `
      -RedirectStandardOutput (Join-Path $out "ryujinx_stdout.txt") -RedirectStandardError (Join-Path $out "ryujinx_stderr.txt")
 Write-Output ("started Ryujinx pid {0} (free commit {1:N1} GB)" -f $p.Id, $freeCommit)
@@ -28,6 +31,7 @@ if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force; Write-Output "stopped pi
 else { Write-Output "Ryujinx exited by itself (code $($p.ExitCode))" }
 Start-Sleep -Seconds 2
 if (Test-Path $logs) { Copy-Item -Recurse $logs (Join-Path $out "logs") -Force }
-Get-ChildItem $sd -Filter "*.png" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt $p.StartTime } |
-    Copy-Item -Destination $out -Force
+# This run's captures move out of the SD (the SD's folder no longer grows); older ones there are left alone.
+Get-ChildItem $sd -Filter "*.png" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $started } |
+    Move-Item -Destination $out -Force
 Get-ChildItem $out -Recurse | Select-Object FullName, Length
