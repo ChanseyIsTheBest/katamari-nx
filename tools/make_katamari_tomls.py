@@ -40,8 +40,14 @@ SHIPPED = {
     # banjo-nx's PM4 renderer and its keys are not used here.
     'masseffect_renderer_native': 'false',
     'gpu_plugin': '""',
-    # N&B's forwarder: Beautiful Katamari's forwarder has its own program id (README.txt, "Four cores").
-    'banjo_forwarder_program_id': '"05D6EA1333487100"',
+    # The user's forwarder (both console runs of 2026-10-31 ran as 0100080021954000, with three cores: the package's
+    # NPDM for 05D6EA1333487100 never applied). Running under this id the NRO writes the four-core NPDM for it
+    # (README.txt, "Four cores"); the next launch has CPU 0-3.
+    'banjo_forwarder_program_id': '"0100080021954000"',
+    # The XMA frame cache off (2026-10-31): in the rc4 console run it saved 0-8 % of the decoding and re-decoded
+    # 10,000-23,000 frames per 10 s in bursts "to catch the codec up", which line up with the worst kick-to-data
+    # delays (16-18 ms) while sounds stalled. Exact either way (the same samples).
+    'banjo_xma_frame_cache': 'false',
     'banjo_shader_misses': '"sdmc:/switch/katamari-nx/shader_misses"',
     # Katamari's hand-written natives (docs/katamari-notes.md, "Hot functions"); the localized copies' keys
     # (banjo_cpu_native_sub_*) default to on. banjo-nx's direct dispatch (no guard) stays as it ships.

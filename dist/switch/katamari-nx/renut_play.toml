@@ -565,7 +565,7 @@ banjo_system_core_compiles = false
 banjo_system_core_uam = true
 banjo_system_core_xma = false
 banjo_system_core_mixer_priority = 45
-banjo_forwarder_program_id = "05D6EA1333487100"
+banjo_forwarder_program_id = "0100080021954000"
 banjo_renut_host_packets = false
 banjo_renut_literals_resident = true
 banjo_renut_replay_lookahead = false
@@ -587,6 +587,7 @@ katamari_hand_matrix_copy = true
 katamari_hand_matrix_multiply = true
 katamari_hand_matrix_translation = true
 katamari_hand_sphere_box = false
+banjo_xma_frame_cache = false
 
 [input_p1]
 a = ""

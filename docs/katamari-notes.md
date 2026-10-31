@@ -486,3 +486,26 @@ compared with the generated original through their hooks (`sub_827596B0` 8,932 c
 (`sub_8221BF20`, `sub_8221BC58`, `sub_82317F48`, it) runs in the game's levels, which the scripted run does not reach.
 So its key, `katamari_hand_sphere_box`, ships **off** in `renut.toml` and is on in `configs/renut_verify.toml` (a level
 played with that config checks it; `[hot] ... differences: 0`).
+
+## The second console test, rc4 (2026-10-31 12:55)
+
+The user: every movie fixed; a beeping tone still heard and some sound effects in gameplay do not play. Breakdown:
+`docs/console-rc4-breakdown.md` (handheld, 720p: gameplay CPU-bound at 28-44 fps, the GPU 15-17 ms a frame; the main
+thread 89 %, the draw thread 83 %).
+
+**Three cores.** Both console runs (rc3 and rc4) logged "Too few processor cores" and "forwarder NPDM not written:
+running as 0100080021954000, not the forwarder 05D6EA1333487100": the user's forwarder has its own program id, so the
+package's four-core NPDM (made for 05D6EA1333487100) never applied. With 241 % of CPU demand on 300 %, the game's audio
+engine (XThread18C0, 25 %) and the XMA decoder (34 %) share three cores with the main and draw threads, and the
+decoder's data arrived up to 18 ms after a kick. `banjo_forwarder_program_id = "0100080021954000"` in every toml
+(`tools/make_katamari_tomls.py`): the NRO writes that forwarder's four-core NPDM on the first launch
+(`sdk/src/core/threading_switch.cpp`, RexSwitchEnsureForwarderNpdm), the second launch has CPU 0-3.
+
+**XMA frame cache off.** In that run it answered 8-36 % of the frames and re-decoded 10,000-23,000 frames per 10 s in
+bursts "to catch the codec up": 0-8 % less decoding in all, and the bursts line up with the worst kick-to-data delays.
+Exact either way; `banjo_xma_frame_cache = false` in every toml. Ryujinx run `shipped_check` (the shipped toml): the
+opening movie's sound ordinary, no steady line.
+
+The host driver (`sdk/src/audio/switch/switch_audio_system.cpp`) plays silence for a client with nothing queued, so the
+beep is not the driver repeating a block: it comes from the game's side when a voice's decoded data is late (the same
+tone as rc3's movies, whose XMA feed was broken).
