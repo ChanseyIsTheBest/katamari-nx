@@ -2,8 +2,8 @@
 """katamari-nx (2026-10-30): writes the package's tomls from banjo-nx's shipped renut.toml (its SD package of
 2026-10-29 evening), with Beautiful Katamari's settings:
 
-  renut.toml       the shipped settings: Renut on deko3d, pixel-identical (720 lines in both modes, no dynamic
-                   resolution, the game's own MSAA), every exact enhancement as banjo-nx ships it, the items measured
+  renut.toml       the shipped settings: Renut on deko3d, 720 lines handheld and 1080 docked (the user's choice; no
+                   dynamic resolution, the game's own MSAA), every exact enhancement as banjo-nx ships it, the items measured
                    SLOWER ON THE CONSOLE off, diagnostics as banjo-nx's renut.toml (logs on);
   renut_play.toml  renut.toml with the render-thread diagnostics off (banjo-nx's renut_play.toml difference);
   renut_ab.toml    renut.toml with an in-run A/B list, 30 s halves, target 1 (a Vulkan-only key: does nothing on the
@@ -26,9 +26,11 @@ HEADER = """# katamari-nx (Beautiful Katamari on the Switch, Renut's renderer on
 SHIPPED = {
     'banjo_renderer': '"renut"',
     'renut_gpu_backend': '"deko3d"',
-    # Pixel-identical by default: the console's 720 lines, the game's MSAA, no dynamic resolution.
+    # The game's MSAA, no dynamic resolution. Handheld at the console's 720 lines; docked at 1080 lines, the user's
+    # decision (2026-10-31: "draw at 1080p in docked and 720p in handheld"; rc4 and rc5 still shipped 720 docked,
+    # fixed in rc6). configs/renut_720_docked.toml keeps the Xbox 360's 720 lines docked too.
     'banjo_renut_render_height_handheld': '720',
-    'banjo_renut_render_height_docked': '720',
+    'banjo_renut_render_height_docked': '1080',
     'banjo_renut_dynamic_resolution': 'false',
     'disable_msaa': 'false',
     'renut_shadow_resolution': '"1x"',
@@ -40,10 +42,10 @@ SHIPPED = {
     # banjo-nx's PM4 renderer and its keys are not used here.
     'masseffect_renderer_native': 'false',
     'gpu_plugin': '""',
-    # The user's forwarder (both console runs of 2026-10-31 ran as 0100080021954000, with three cores: the package's
-    # NPDM for 05D6EA1333487100 never applied). Running under this id the NRO writes the four-core NPDM for it
-    # (README.txt, "Four cores"); the next launch has CPU 0-3.
-    'banjo_forwarder_program_id': '"0100080021954000"',
+    # No four-core NPDM (2026-11-01, the user: "let's just focus on 3 core performance"): empty, the NRO writes none.
+    # rc5 named the user's forwarder (0100080021954000) and wrote its NPDM on the first launch; deleting
+    # sdmc:/atmosphere/contents/0100080021954000/exefs/main.npdm puts that forwarder back on three cores.
+    'banjo_forwarder_program_id': '""',
     # The XMA frame cache off (2026-10-31): in the rc4 console run it saved 0-8 % of the decoding and re-decoded
     # 10,000-23,000 frames per 10 s in bursts "to catch the codec up", which line up with the worst kick-to-data
     # delays (16-18 ms) while sounds stalled. Exact either way (the same samples).
@@ -84,7 +86,8 @@ CONFIGS = {
     # resolved 4-sample depth). It needs hooks at Katamari's own render-target creation first.
     'renut_648_864.toml': ({'banjo_renut_render_height_handheld': '648', 'banjo_renut_render_height_docked': '864'},
                            'banjo-nx\'s internal resolution: 648 lines handheld, 864 docked (not pixel-identical)'),
-    'renut_1080_docked.toml': ({'banjo_renut_render_height_docked': '1080'}, '1080 lines docked (not pixel-identical)'),
+    'renut_720_docked.toml': ({'banjo_renut_render_height_docked': '720'},
+                              '720 lines docked too, the Xbox 360\'s own (pixel-identical)'),
     'renut_dynamic.toml': ({'banjo_renut_dynamic_resolution': 'true'},
                            'banjo-nx\'s dynamic resolution, 540-720 handheld / 720-1080 docked (not pixel-identical)'),
 }
@@ -116,7 +119,7 @@ def main():
     shipped = apply(base, SHIPPED)
     os.makedirs(os.path.join(a.out, 'configs'), exist_ok=True)
     outs = {
-        'renut.toml': (shipped, 'the shipped settings (pixel-identical; diagnostics and logs on)'),
+        'renut.toml': (shipped, 'the shipped settings (720 lines handheld, 1080 docked; diagnostics and logs on)'),
         'renut_play.toml': (apply(shipped, PLAY), 'renut.toml with the render-thread diagnostics off, for playing'),
         'renut_ab.toml': (apply(shipped, AB), 'renut.toml with an in-run A/B list, 30 s halves, target 1 as the '
                                               'control (a Vulkan-only key: nothing on the Switch)'),

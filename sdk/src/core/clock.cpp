@@ -140,6 +140,17 @@ REXCVAR_DEFINE_BOOL(clock_nonblocking, true, "Clock",
                     "middle of an update returns that thread's published count (equivalent to waiting for it "
                     "and reading the same value, without the wait). false = the original blocking path");
 
+// katamari-nx (2026-11-01): Beautiful Katamari's QueryPerformanceCounter (sub_824C0698, one mftb) runs about
+// 300,000 times a second in a level, nearly all on the draw thread, and every call try-locked tick_mutex_, stored
+// both counts and added to a counter all the cores share: UpdateGuestClock, its mutex and that counter were 8 % of
+// the draw thread on the console (rc5). The lock-free count is a fixed base plus the scaled host delta.
+REXCVAR_DEFINE_BOOL(clock_lock_free, true, "Clock",
+                    "UpdateGuestClock without its mutex: guest ticks = base + (host ticks - base host ticks) * "
+                    "ratio, from a base that moves only when the ratio changes (at start). The summed per-call "
+                    "deltas of the locked path dropped each call's remainder, which made the guest clock run slow "
+                    "by up to a tick every call (~0.3 % at 300,000 calls a second); this count does not drift. "
+                    "false = the locked path");
+
 namespace rex::chrono {
 
 // Time scalar applied to all time operations.
@@ -160,6 +171,30 @@ uint64_t last_host_tick_count_ = Clock::QueryHostTickCount();
 // Mutex to ensure last_host_tick_count_ and last_guest_tick_count_ are in sync
 std::mutex tick_mutex_;
 
+// The base of the lock-free count (clock_lock_free). RecomputeGuestTickScalar publishes a new one whole and never
+// frees the old one, which a reader may still hold (two in all: set_guest_tick_frequency and
+// set_guest_time_scalar at start).
+struct TickBase {
+  uint64_t host;
+  uint64_t guest;
+  uint64_t num;
+  uint64_t den;
+  uint64_t max_delta;  // the largest host delta whose product with num fits in 64 bits
+};
+const TickBase initial_tick_base_{last_host_tick_count_, 0, 1, 1, std::numeric_limits<uint64_t>::max()};
+std::atomic<const TickBase*> tick_base_{&initial_tick_base_};
+// clock_lock_free as RecomputeGuestTickScalar last read it (Runtime::Setup, after the toml): a cvar read is a call.
+std::atomic<bool> lock_free_{true};
+
+inline uint64_t GuestTicksAt(const TickBase& base, uint64_t host_tick_count) {
+  const uint64_t delta = host_tick_count > base.host ? host_tick_count - base.host : 0;
+  if (delta <= base.max_delta) [[likely]] {
+    return base.guest + delta * base.num / base.den;
+  }
+  // delta = q * den + r: the same floor without the 64-bit overflow (centuries away at the start ratio).
+  return base.guest + delta / base.den * base.num + delta % base.den * base.num / base.den;
+}
+
 void RecomputeGuestTickScalar() {
   // Create a rational number with numerator (first) and denominator (second)
   auto frac = std::make_pair(guest_tick_frequency_, Clock::QueryHostTickFrequency());
@@ -177,6 +212,13 @@ void RecomputeGuestTickScalar() {
 
   std::lock_guard<std::mutex> lock(tick_mutex_);
   guest_tick_ratio_ = frac;
+  lock_free_.store(REXCVAR_GET(clock_lock_free), std::memory_order_relaxed);
+  // The lock-free base moves to now, so the count goes on from where the old ratio took it.
+  const uint64_t host_now = Clock::QueryHostTickCount();
+  const TickBase* old_base = tick_base_.load(std::memory_order_relaxed);
+  tick_base_.store(new TickBase{host_now, GuestTicksAt(*old_base, host_now), frac.first, frac.second,
+                                std::numeric_limits<uint64_t>::max() / frac.first},
+                   std::memory_order_release);
 }
 
 // Update the guest timer for all threads.
@@ -187,6 +229,16 @@ uint64_t UpdateGuestClock() {
   if (REXCVAR_GET(clock_no_scaling)) {
     // Nothing to update, calculate on the fly
     return host_tick_count * guest_tick_ratio_.first / guest_tick_ratio_.second;
+  }
+
+  if (lock_free_.load(std::memory_order_relaxed)) {
+    // Counted 64 at a time per thread: the shared counter's add on every call cost as much as the rest.
+    thread_local uint32_t calls = 0;
+    if (++calls == 64) {
+      calls = 0;
+      REX_SYS_COUNT(rex::syscount::kClockCall, 64);
+    }
+    return GuestTicksAt(*tick_base_.load(std::memory_order_acquire), host_tick_count);
   }
 
   REX_SYS_COUNT(rex::syscount::kClockCall, 1);

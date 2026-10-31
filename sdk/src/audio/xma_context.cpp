@@ -76,7 +76,22 @@ REXCVAR_DEFINE_BOOL(banjo_xma_frame_cache_verify, false, "Banjo/Debug",
 REXCVAR_DEFINE_INT32(audio_xma_loop_trace, 0, "Audio",
                      "Diagnostic: log the loop fields of a context each time it jumps back to its loop start "
                      "or decodes the same frame several times in a row (at most this many lines a context; "
-                     "0 = off)");
+                     "0 = off). Also: a sound's input ending, the game re-submitting input or re-validating the "
+                     "output, a drained output marked done, a clear");
+// katamari-nx (2026-11-01): rc5's whole-buffer loop made the one-shot effects loop forever (the user's console run).
+// The trace of runs menu6_end and game6_end: every sound with loop count 255 and no loop end that reached the end of
+// its input was released by the game 60-70 ms later (3 on the menus, 16 in the practice room); the game's own loops
+// re-submit their buffer. So they are one-shots that play to their end (off is the default since rc6).
+REXCVAR_DEFINE_BOOL(audio_xma_whole_buffer_loop, false, "Audio",
+                    "XMA: a context with a loop count and no loop end (loop end below bit 32) goes back to its first "
+                    "frame past the buffer's last one (rc5: Beautiful Katamari's one-shot effects then loop forever). "
+                    "false = it plays to the end of its input, as Xenia's decoder does (no frame starts at such an "
+                    "end) and as the game expects");
+REXCVAR_DEFINE_BOOL(audio_xma_output_done_when_drained, false, "Audio",
+                    "XMA: a pass that finds no input left, nothing pending and the output ring empty (the game took "
+                    "every sample) clears output_buffer_valid, as Xenia clears it whenever the ring is empty after a "
+                    "pass: the sound is done. false = only a pass that wrote PCM and filled the ring clears it "
+                    "(banjo-nx's rule)");
 REXCVAR_DEFINE_INT32(banjo_xma_frame_cache_mb, 24, "Banjo/Audio",
                      "XMA frame cache: memory for the decoded frames (about 2 KB each); full, it starts again")
     .range(1, 256);
@@ -624,7 +639,28 @@ bool XmaContext::Work() {
   XMA_CONTEXT_DATA data(context_ptr);
   const XMA_CONTEXT_DATA initial_data = data;
 
+  // katamari-nx (2026-11-01): audio_xma_loop_trace, what the game changed since the last pass (trace only).
+  if (trace_stored_known_ && REXCVAR_GET(audio_xma_loop_trace) > 0) {
+    const uint8_t inputs = uint8_t(data.input_buffer_0_valid | (data.input_buffer_1_valid << 1));
+    if ((inputs & ~trace_stored_inputs_) && TraceOn()) {
+      REXAPU_INFO("XMA trace: context {} input re-submitted: valid {}{} (left {}{}), buffer {}, read bit {}, packets "
+                  "{}/{}, loop start {} end {} count {}, output valid {}",
+                  id(), uint32_t(data.input_buffer_0_valid), uint32_t(data.input_buffer_1_valid),
+                  trace_stored_inputs_ & 1, trace_stored_inputs_ >> 1, uint32_t(data.current_buffer),
+                  uint32_t(data.input_buffer_read_offset), uint32_t(data.input_buffer_0_packet_count),
+                  uint32_t(data.input_buffer_1_packet_count), uint32_t(data.loop_start), uint32_t(data.loop_end),
+                  uint32_t(data.loop_count), uint32_t(data.output_buffer_valid));
+    }
+    if (data.output_buffer_valid && !trace_stored_output_ && TraceOn()) {
+      REXAPU_INFO("XMA trace: context {} output re-validated (read {} write {} of {} blocks), inputs {}{}", id(),
+                  uint32_t(data.output_buffer_read_offset), uint32_t(data.output_buffer_write_offset),
+                  uint32_t(data.output_buffer_block_count), uint32_t(data.input_buffer_0_valid),
+                  uint32_t(data.input_buffer_1_valid));
+    }
+  }
+
   if (!data.output_buffer_valid) {
+    NoteStored(context_ptr);
     return true;
   }
 
@@ -635,6 +671,7 @@ bool XmaContext::Work() {
     data.error_status = 4;
     data.output_buffer_valid = 0;
     StoreContextMerged(data, initial_data, context_ptr);
+    NoteStored(context_ptr);
     return true;
   }
 
@@ -660,6 +697,7 @@ bool XmaContext::Work() {
       data.output_buffer_valid = 0;
     }
     StoreContextMerged(data, initial_data, context_ptr);
+    NoteStored(context_ptr);
     NoteProduction(output_bytes_written != 0, 1, data);  // Measurement only
     return true;
   }
@@ -672,6 +710,7 @@ bool XmaContext::Work() {
 
   if (minimum_subframe_decode_count > remaining_subframe_blocks_in_output_buffer_) {
     StoreContextMerged(data, initial_data, context_ptr);
+    NoteStored(context_ptr);
     NoteProduction(true, 0, data);  // output full, not silence
     return true;
   }
@@ -713,11 +752,39 @@ bool XmaContext::Work() {
   // Equal pointers mean full only if PCM was written this time.
   if (output_bytes_written && output_rb.empty()) {
     data.output_buffer_valid = 0;
+  } else if (REXCVAR_GET(audio_xma_output_done_when_drained) && !output_bytes_written && output_rb.empty() &&
+             !data.IsAnyInputBufferValid() && !current_frame_remaining_subframes_) {
+    // katamari-nx (2026-11-01): no input, nothing pending, every sample taken: the sound is done.
+    data.output_buffer_valid = 0;
+    if (TraceOn()) {
+      REXAPU_INFO("XMA trace: context {} output drained with no input left: output marked done (loop count {})",
+                  id(), uint32_t(data.loop_count));
+    }
   }
 
   StoreContextMerged(data, initial_data, context_ptr);
+  NoteStored(context_ptr);
   NoteProduction(output_bytes_written != 0, silence_reason, data);  // Measurement only
   return true;
+}
+
+bool XmaContext::TraceOn() {
+  const int32_t trace = REXCVAR_GET(audio_xma_loop_trace);
+  if (trace <= 0 || trace_lines_ >= uint32_t(trace)) {
+    return false;
+  }
+  ++trace_lines_;
+  return true;
+}
+
+void XmaContext::NoteStored(const uint8_t* context_ptr) {
+  if (REXCVAR_GET(audio_xma_loop_trace) <= 0) {
+    return;
+  }
+  const XMA_CONTEXT_DATA stored(context_ptr);
+  trace_stored_inputs_ = uint8_t(stored.input_buffer_0_valid | (stored.input_buffer_1_valid << 1));
+  trace_stored_output_ = stored.output_buffer_valid;
+  trace_stored_known_ = true;
 }
 
 void XmaContext::Enable() {
@@ -742,8 +809,14 @@ void XmaContext::Clear() {
 
   auto context_ptr = memory()->TranslateVirtual(guest_ptr());
   XMA_CONTEXT_DATA data(context_ptr);
+  if (TraceOn()) {
+    REXAPU_INFO("XMA trace: context {} cleared by the game (inputs {}{}, output valid {}, loop count {})", id(),
+                uint32_t(data.input_buffer_0_valid), uint32_t(data.input_buffer_1_valid),
+                uint32_t(data.output_buffer_valid), uint32_t(data.loop_count));
+  }
   ClearLocked(&data);
   data.Store(context_ptr);
+  NoteStored(context_ptr);
 }
 
 void XmaContext::ClearLocked(XMA_CONTEXT_DATA* data) {
@@ -789,7 +862,14 @@ void XmaContext::Release() {
   set_is_allocated(false);
   ResetDecoderState();
   auto context_ptr = memory()->TranslateVirtual(guest_ptr());
+  if (TraceOn()) {
+    const XMA_CONTEXT_DATA data(context_ptr);
+    REXAPU_INFO("XMA trace: context {} released by the game (inputs {}{}, output valid {}, loop count {})", id(),
+                uint32_t(data.input_buffer_0_valid), uint32_t(data.input_buffer_1_valid),
+                uint32_t(data.output_buffer_valid), uint32_t(data.loop_count));
+  }
   std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
+  NoteStored(context_ptr);
 }
 
 void XmaContext::SwapInputBuffer(XMA_CONTEXT_DATA* data) {
@@ -1366,15 +1446,24 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
 }
 
 // katamari-nx (2026-10-31): a loop count with no loop end (loop_end below the first frame, as Beautiful Katamari's
-// sounds come: start 0, end 0, count 255) loops the whole buffer, XAudio's "loop length 0 is the entire buffer":
-// past the buffer's last frame, with nothing valid in the other buffer, the read position goes back to the loop
-// start (the buffer's first frame for a start of 0) instead of releasing the buffer. Those voices then keep producing
-// as the game expects (before, they replayed one subframe of their first frame: the constant tone; letting them end
-// instead stalled the game's audio engine on the menus).
+// sounds come: start 0, end 0, count 255) loops the whole buffer when audio_xma_whole_buffer_loop is on: past the
+// buffer's last frame, with nothing valid in the other buffer, the read position goes back to the loop start (the
+// buffer's first frame for a start of 0) instead of releasing the buffer. rc5 shipped it on, read from a Ryujinx run
+// whose menu went quiet when these sounds ended; they are one-shots (2026-11-01: the game releases each of them as
+// it ends) and it is off by default since rc6. With it off this only traces the end of a sound's input.
 bool XmaContext::LoopWholeBuffer(XMA_CONTEXT_DATA* data, uint32_t next_packet_index,
                                  uint32_t current_input_packet_count) {
+  if (next_packet_index < current_input_packet_count || data->IsInputBufferValid(data->current_buffer ^ 1)) {
+    return false;  // more input follows
+  }
+  // 2026-11-01: audio_xma_whole_buffer_loop = false plays such a sound to its end, like any other.
   if (data->loop_count == 0 || data->loop_end >= kBitsPerPacketHeader ||
-      next_packet_index < current_input_packet_count || data->IsInputBufferValid(data->current_buffer ^ 1)) {
+      !REXCVAR_GET(audio_xma_whole_buffer_loop)) {
+    if (TraceOn()) {
+      REXAPU_INFO("XMA trace: context {} input ends ({} packets, buffer {}; loop start {} end {} count {}): released",
+                  id(), current_input_packet_count, uint32_t(data->current_buffer), uint32_t(data->loop_start),
+                  uint32_t(data->loop_end), uint32_t(data->loop_count));
+    }
     return false;
   }
   uint32_t start = GetNextPacketReadOffset(GetCurrentInputBuffer(data), 0, current_input_packet_count);

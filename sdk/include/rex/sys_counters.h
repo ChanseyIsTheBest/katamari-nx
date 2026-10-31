@@ -29,7 +29,7 @@ enum : unsigned {
   kMultiPoll = 45,        // legacy WaitMultiple 1 ms sleep polls (thread_wait_blocking = false)
   kTimestampTick = 46,    // KeTimeStampBundle timer callbacks
   kClockCall = 47,        // UpdateGuestClock calls
-  kClockBlocked = 48,     // ... that found the clock mutex taken
+  kClockBlocked = 48,     // ... that found the clock mutex taken (clock_lock_free = false only)
   kObjLookup = 49,        // ObjectTable::LookupObject calls
   kObjBlocked = 50,       // ... that found the global critical region taken
   kVolumeMask = 51,       // XAudioGetVoiceCategoryVolumeChangeMask calls

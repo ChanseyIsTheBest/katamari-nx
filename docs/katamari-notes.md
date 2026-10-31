@@ -21,8 +21,8 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
 | Renut's hooks | compiled but not registered until moved (`KATAMARI_RENUT_HOOKS`, `banjo_renut_select.h`) | an N&B address is an unrelated function in this game |
 | Banjo-only sources | not built: cheats / mid-asm hooks (`hooks.cpp`), title update, DLC, `banjo_me_hooks.cpp`, XAudio natives, hand natives, hot copies, shader harvest | each is written for N&B's addresses; `src/katamari_keys.cpp` defines the keys the kept files read (off) |
 | Host shader tools | glslangValidator, SPIRV-Cross, uam copied from banjo-nx's `out/` | built from the same sources this tree carries (`tools/deko3d_build_tools.sh`) |
-| Shipped `renut.toml` | 720 lines handheld and docked, no dynamic resolution, the game's MSAA (`disable_msaa = false`), shadow scale 1x, post-processing at the game's precision, no extra frame cap | pixel-identical by default; banjo-nx's 648/864 lines, dynamic resolution, MSAA off and 1080 docked are `configs/*.toml` for the user (`tools/make_katamari_tomls.py`) |
-| Four-core forwarder | program id `05D6EA1333487100` (banjo-nx's is `...7000`), NPDM `tools/forwarder/katamari_main.npdm` | its own id so the two NPDMs never collide; the user makes the forwarder |
+| Shipped `renut.toml` | 720 lines handheld, 1080 docked (the user's choice, 2026-10-31; rc4 and rc5 shipped 720 docked by mistake, fixed in rc6), no dynamic resolution, the game's MSAA (`disable_msaa = false`), shadow scale 1x, post-processing at the game's precision, no extra frame cap | the user decides what changes the picture; the Xbox 360's own 720 lines docked, banjo-nx's 648/864 lines, dynamic resolution and MSAA off are `configs/*.toml` (`tools/make_katamari_tomls.py`) |
+| Four-core forwarder | program id `05D6EA1333487100` (banjo-nx's is `...7000`), NPDM `tools/forwarder/katamari_main.npdm` | its own id so the two NPDMs never collide; the user makes the forwarder; since rc6 off (the user: three cores): `banjo_forwarder_program_id = ""`, the package's NPDM only with `package_switch.ps1 -FourCore` |
 | PGO + LTO | **deferred by the user** (14:55): the package is a normal `-O3` build (`app/out/switch`); PGO + LTO only for the final build, after more optimisation and the user's console tests, when the user says so | the user's message. The instrumented build (`app/out/switch-pgo-gen`, `-DBANJO_PGO=generate`) was stopped at 991 of 1044 steps and left as it is; `tools/build_switch.bat` takes `BUILD_DIR` and `CMAKE_EXTRA` for it (banjo-nx's docs/pgo-lto.md) |
 
 ## The game (2026-10-30)
@@ -526,3 +526,36 @@ in the other buffer) the read position goes back to the loop start (`XmaContext:
 the fix: the main menu with clean and with scribbled memory, no repeated block (40 s each), the audio goes on; in
 gameplay ten contexts loop their whole buffer (the game's looping effects), no repeated block; the opening movie's
 sound ordinary.
+
+## rc6 (2026-11-01): three cores, the guest clock, the one-shot effects
+
+The user, after rc5: most effects loop endlessly; "let's just focus on 3 core performance", then the looping.
+
+**Where the three cores go (rc5 console run, handheld, 39 fps in a level).** Main thread 80 % of a core, the draw
+thread 72 %, the game's audio engine 27 %, the XMA decoder 18 % (`docs/console-rc5-breakdown.md`). What was looked at:
+
+| Where | Finding | Done |
+|---|---|---|
+| Draw thread, host | the game's QueryPerformanceCounter (`sub_824C0698`, one `mftb`) about 300,000 times a second in a level, almost all from the draw thread through the elapsed-time helper `sub_82678260` (a vtable slot: counter++, QPC, minus a start time, times a scale); every call went through `UpdateGuestClock`: a mutex try-lock, two stores and an add to the counter table all cores share. With the mutex and the counter: about 8 % of the draw thread | `clock_lock_free` (on): the guest count is a fixed base plus the scaled host delta (one acquire load, no store), the base moving only when the ratio changes (twice, at start); calls counted 64 at a time per thread. The summed per-call deltas of the locked path dropped each call's remainder (up to 47/48 of a tick at 125/48): at 300,000 calls a second the guest clock ran about 0.3 % slow; this count does not drift |
+| Main thread | 91.6 % machine copies; the two hottest (`sub_82277E70` 18 %, `sub_822683D0` 14 %) have flat profiles (the hottest 64 bytes 7 %), their samples on loads of the matrices they read (cache misses); `sub_827A5B00` (6 %) walks an object tree through vtables | nothing to remove without changing what the game computes |
+| Draw thread, guest | `sub_826A13D8` / `sub_826707B0` (5 %): reference counts, one `lwarx`/`stwcx.` loop each, already a single CAS; their cost is the shared lines | none |
+| Draw thread, renderer | `CaptureDelta` 4.5 %: 39 chunks (2.5 KB) compared a draw, 21,000 draws a second; the copies the render thread needs | none |
+| Audio engine | its top function's time is the VMX resampler's sample gather (loads), already vector code | none this round |
+| XMA decoder | 17 % of it is FFmpeg's per-frame allocations (a buffer reference a packet, pooled frame buffers behind a mutex) | needs FFmpeg's internals: later |
+| Elapsed-time helper | a hand native would save about 2 % of the draw thread, but the guard cannot compare a function that reads the clock | not done |
+
+**The one-shot effects (fixed).** rc5 looped every sound with loop count 255 and no loop end (`LoopWholeBuffer`),
+from a Ryujinx run whose main menu went quiet when they ended. New keys: `audio_xma_whole_buffer_loop` (rc5's loop;
+off since rc6), `audio_xma_output_done_when_drained` (Xenia's rule: a drained output with no input left clears
+`output_buffer_valid`; off, never needed), and the trace (`audio_xma_loop_trace`) now logs a sound's input ending,
+the game re-submitting input or re-validating output, clears and releases. Runs `menu6_end`, `game6_end` (practice
+room) and `menu6_rc6` (the new defaults): every such sound that reached the end of its input was released by the game
+60-70 ms later (3 on the menus, 16 in the practice room, 9 with the defaults): one-shots; the game's streams (count
+0) are re-submitted by the game as before. The practice room's recording follows the King's lines (sound while a
+line types, quiet between), where rc5's had sound throughout. `menu6_lockclock` (the same with `clock_lock_free =
+false`): the same channels sound at the same seconds, so the clock change does not move the audio.
+
+**Also in rc6.** Docked renders at 1080 lines again (the user's choice of 2026-10-31; rc4 and rc5 shipped 720 docked
+by mistake: their log says "Internal heights: handheld 1280x720, docked 1280x720"); `configs/renut_720_docked.toml`
+replaces `renut_1080_docked.toml`. No four-core NPDM: `banjo_forwarder_program_id = ""`; rc5 wrote one for the
+user's forwarder, which they delete to be back on three cores.

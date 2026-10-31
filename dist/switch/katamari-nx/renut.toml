@@ -1,4 +1,4 @@
-# katamari-nx (Beautiful Katamari on the Switch, Renut's renderer on deko3d): the shipped settings (pixel-identical; diagnostics and logs on)
+# katamari-nx (Beautiful Katamari on the Switch, Renut's renderer on deko3d): the shipped settings (720 lines handheld, 1080 docked; diagnostics and logs on)
 # Made by tools/make_katamari_tomls.py from banjo-nx's shipped renut.toml (2026-10-29). Copy to
 # sdmc:/switch/katamari-nx/renut.toml. Credits: reNut's renderer (masterspike52, reuse permitted), banjo-nx, sa2-nx,
 # NetherSX2_nx (four-core layout), battd_nx (the GPU arena), bejeweled3-nx and the zuma ports (hot functions).
@@ -463,7 +463,7 @@ banjo_renut_portrait_msaa_samples = 2
 # (rounded to a multiple of 9: 648, 702, 756, 810, 864, 900, ...; read at start). configs/banjo_renut_native_720p.toml
 # is the game's own 720p.
 banjo_renut_render_height_handheld = 720
-banjo_renut_render_height_docked = 720
+banjo_renut_render_height_docked = 1080
 banjo_renut_display_height_docked = 1080
 # The upscale: 0 = bilinear (your choice, every config: one sample a pixel, the cheapest), 1 = bicubic Catmull-Rom
 # (sharper, five samples a pixel).
@@ -565,7 +565,7 @@ banjo_system_core_compiles = false
 banjo_system_core_uam = true
 banjo_system_core_xma = false
 banjo_system_core_mixer_priority = 45
-banjo_forwarder_program_id = "0100080021954000"
+banjo_forwarder_program_id = ""
 banjo_renut_host_packets = false
 banjo_renut_literals_resident = true
 banjo_renut_replay_lookahead = false

@@ -2,7 +2,8 @@
 #   builds/<date>_<time>_<name>/
 #     COPY_TO_SD_switch_katamari-nx/   katamari-nx.nro, renut.toml (shipped), renut_play.toml, renut_ab.toml, configs/,
 #                                      deko3d_shaders.bin (the prebuilt DKSH cache), game_root/ (your game files)
-#     COPY_TO_SD_ROOT/atmosphere/contents/05D6EA1333487100/exefs/main.npdm   (the four-core forwarder NPDM)
+#     COPY_TO_SD_ROOT/atmosphere/contents/05D6EA1333487100/exefs/main.npdm   (the four-core forwarder NPDM; only with
+#                                      -FourCore since rc6: the user runs on three cores)
 #     katamari-nx.elf                  the unstripped ELF of this NRO (profiles map to it)
 #     source_<commit>.tgz              the source snapshot (git archive of the commit; no game data, no generated code)
 #     README.txt, PACKAGE_NOTES.txt
@@ -12,7 +13,7 @@
 #   powershell -File tools/package_switch.ps1 -Name pgo_lto [-Build app\out\switch-pgo-use] [-Notes <file>]
 #       [-GameRoot D:\beautifulkatamari\game] [-Dlc D:\beautifulkatamari\dlc]
 param([string]$Name = "package", [string]$Build = "app\out\switch", [string]$Notes = "", [string]$GameRoot = "",
-      [string]$Dlc = "")
+      [string]$Dlc = "", [switch]$FourCore)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $free = (Get-PSDrive D).Free / 1GB
@@ -47,9 +48,11 @@ if ($Dlc) {
     Set-Content -Path (Join-Path $sd "dlc\PUT_THE_DLC_PACKAGES_HERE.txt") -Encoding ascii -Value `
         "Optional: Beautiful Katamari's DLC packages (Xbox 360 LIVE files, content type 2) here; installed at the first start."
 }
-$npdm = Join-Path $out "COPY_TO_SD_ROOT\atmosphere\contents\05D6EA1333487100\exefs"
-New-Item -ItemType Directory -Force $npdm | Out-Null
-Copy-Item (Join-Path $root "tools\forwarder\katamari_main.npdm") (Join-Path $npdm "main.npdm")
+if ($FourCore) {
+    $npdm = Join-Path $out "COPY_TO_SD_ROOT\atmosphere\contents\05D6EA1333487100\exefs"
+    New-Item -ItemType Directory -Force $npdm | Out-Null
+    Copy-Item (Join-Path $root "tools\forwarder\katamari_main.npdm") (Join-Path $npdm "main.npdm")
+}
 if (Test-Path $elf) { Copy-Item $elf (Join-Path $out "katamari-nx.elf") }
 Copy-Item (Join-Path $root "dist\switch\README.txt") $out
 if ($Notes) { Copy-Item $Notes (Join-Path $out "PACKAGE_NOTES.txt") }

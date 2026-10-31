@@ -323,6 +323,13 @@ class XmaContext {
   uint32_t trace_lines_ = 0;
   uint32_t trace_last_offset_ = UINT32_MAX;
   uint32_t trace_same_offset_ = 0;
+  // katamari-nx (2026-11-01): what the last pass left in the guest's context (input valid bits, output valid), so
+  // the next pass can tell what the game changed in between (trace only).
+  uint8_t trace_stored_inputs_ = 0;
+  bool trace_stored_output_ = false;
+  bool trace_stored_known_ = false;
+  bool TraceOn();
+  void NoteStored(const uint8_t* context_ptr);
 
   // banjo-nx (2026-10-27, #4 of the CPU-gap table: banjo_xma_frame_cache, xma_context.cpp). The frames given to the codec
   // since it was last opened, as a node of the shared cache (0: not known, nothing cached until the codec is opened

@@ -21,20 +21,22 @@ sdmc:/switch/katamari-nx/dlc/                 the DLC packages (Xbox 360 LIVE fi
 
 The tomls
 ---------
-renut.toml        the shipped settings: Renut on deko3d, pixel-identical to the console (720 lines handheld and
-                  docked, the game's own MSAA, no dynamic resolution), every exact enhancement on, the items measured
-                  SLOWER ON THE CONSOLE in banjo-nx off, logs and diagnostics on.
+renut.toml        the shipped settings: Renut on deko3d, 720 lines handheld and 1080 docked (your choice; the
+                  game's own MSAA, no dynamic resolution), every exact enhancement on, the items measured SLOWER ON
+                  THE CONSOLE in banjo-nx off, logs and diagnostics on. configs/renut_720_docked.toml keeps the Xbox
+                  360's own 720 lines docked too (pixel-identical to the console).
 renut_play.toml   the same with the render-thread diagnostics off (for playing).
 renut_ab.toml     the same with an in-run A/B list, 30 s halves, target 1 as the do-nothing control (a Vulkan-only
                   key). Stand still in one place for 10+ minutes; the log's "[renut A/B]" lines give each target.
 configs/          options that change the picture, one key away from renut.toml each, for you to decide on.
 
-Four cores
-----------
-COPY_TO_SD_ROOT/atmosphere/contents/05D6EA1333487100/exefs/main.npdm is NetherSX2_nx's forwarder NPDM layout (CPU
-0-3) with program id 05D6EA1333487100. Make a forwarder with that program id for the NRO (or change
-banjo_forwarder_program_id in renut.toml to your forwarder's id and let the NRO write the NPDM itself: launch once,
-then again). The log's "[banjo] system core:" line says whether the fourth core was granted.
+Cores
+-----
+The port runs on the three cores a homebrew launch gets. Four cores are optional and off: with
+banjo_forwarder_program_id in renut.toml set to your forwarder's id, the NRO writes that forwarder's four-core NPDM
+(NetherSX2_nx's layout, CPU 0-3) to sdmc:/atmosphere/contents/<id>/exefs/main.npdm, and the next launch has CPU 0-3
+(the log's "[banjo] system core:" line says whether the fourth core was granted). Delete that main.npdm to go back to
+three cores. (Packages made with -FourCore also carry it under COPY_TO_SD_ROOT for program id 05D6EA1333487100.)
 
 Profiling
 ---------
