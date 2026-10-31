@@ -47,10 +47,15 @@ fp_moves_modeless = true
 #     taking r11; a vector codec family that saves / restores v32-v63 through sub_829E70A8 / sub_829E73F0), RET 14,
 #     HANDOVER 0. Every ENTRY and RET function is kept (6379 below); their callers hand the registers over.
 non_volatile_as_local = true
-# v69 and v72 stay in ctx in every function: nothing in the game sets them (only the VMX save / restore helpers and a
-# codec's save / restore routines touch them), and sub_82627520 / sub_82627B58 read them before writing: as on the
-# console they then read what is left there, not a zeroed local.
-non_volatile_as_local_keep = ["v69", "v72"]
+# v64-v127 stay in ctx in every function (2026-10-31; rc2/rc3 kept only v69 and v72, and every movie decoded into
+# green blocks on the console and in Ryujinx, rc1 clean). The movies' codec keeps constants in VMX128 registers across
+# its calls: sub_829E70A8 saves v32-v127 into a buffer and then loads nine constant vectors into v64-v72 from a table,
+# its callers (sub_829E3628 ... sub_829E6CF0, sub_825EADF8, sub_82A01D88) run the decoder, which reads them, and
+# sub_829E73F0 restores v32-v127 at the end. As locals, the nine loads died with the helper's frame and the decoder
+# read zeros (v69 and v72, already kept here because sub_82627520 / sub_82627B58 read them first, were the only two
+# it got). Only about 40 functions name a register above v31, so keeping the whole range costs almost nothing; their
+# saves and restores of v64-v127 are then real calls again, as on the Xbox 360.
+non_volatile_as_local_keep = ["v64-v127"]
 elide_lr_stores = true
 non_argument_as_local = true
 non_argument_as_local_keep = [

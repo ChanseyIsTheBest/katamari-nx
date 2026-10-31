@@ -402,3 +402,76 @@ only; banjo-nx uses it) unpacks the packages in a `dlc` folder next to the NRO a
 `renut_app.h` (OnPostSetup, OnConfigurePaths, the PC path wizard). Ryujinx run `dlc1`: 16 installed, the game's
 enumeration lists 16 and opens each one (`XamContentCreate ... type 00000002 ... open`), no error. What each pack adds in
 game was not walked through with the scripted pad.
+
+## The first console test, rc3 (2026-10-31): movies, crash, a wider scan, profile
+
+The user's logs (in the rc2 folder, but written by rc3: the DLC installs are in them) and a phone video of the
+movies. Symbolised against `builds/2026-10-31_0030_rc3_dlc_full/katamari-nx.elf`; the breakdown is
+`docs/console-rc3-breakdown.md` (ReverseNX docked mode with handheld clocks: 1080p on the 460 MHz GPU, gameplay
+GPU-bound at 24-40 ms a frame).
+
+**Movies decoded into green blocks (fixed).** Ryujinx shows the same (run `movie1`, captures every 3 s: the opening
+movie broken by 20 s in), so it is not the hardware. Bisected in the emulator: CPU enhancements off (`movie_cpuoff`):
+still broken; renderer enhancements off (`movie_noncpuoff`): still broken; rc1's NRO (`movie_rc1`): clean. Between rc1
+and rc2 the register diet came in. The movies' codec keeps constants in VMX128 registers across its calls:
+`sub_829E70A8` saves v32-v127 into a buffer and loads nine constant vectors into v64-v72 from a table, its callers
+(`sub_829E3628` ... `sub_829E6CF0`, `sub_825EADF8`, `sub_82A01D88`; reached through pointers) run the decoder, and
+`sub_829E73F0` restores v32-v127. With `non_volatile_as_local` those nine loads went into the helper's own locals and
+died with it; only v69 and v72 (already in `non_volatile_as_local_keep`) reached the decoder. Fix: the keep list is
+`["v64-v127"]` (`app/renut_config.toml`): only about 40 functions name a register above v31, so it costs nothing that
+shows, and their saves / restores of v64-v127 are real again, as on the Xbox 360. (A checker of locals read before
+they are written, `local_rbw.py` in the session scratchpad, found the helper's 62 reads of unwritten v-locals; the
+audits of 2026-10-30 had kept v69 / v72 for the same codec without seeing the other seven.)
+
+**Crash leaving the collection menu (fixed).** `[FATAL] Call to invalid or unregistered function at guest address
+0x823700C8`: a 4-instruction vcall thunk (`lwz r12,0(r3); lwz r11,36(r12); mtctr r11; bctr`) next to three that were
+registered. Its address is built 9 instructions after its `lis` (0x8237068C / 0x823706B0), past the 8-instruction
+window of `tools/pointer_fixpoint.py` (now 32), and the gap sweep skipped it in a jump table's 2 KB shadow. Registered
+in `app/overrides.toml`.
+
+**Could there be more?** Three wider scans of the image, all for addresses that can be called through a pointer but
+are not function starts: (1) every `lis` / `addi` pair inside a function with no instruction window; (2) every aligned
+data word into the code; (3) every vcall-thunk shape with any registers. Only 0x823700C8 is new. The rest are switch
+tables (absolute case addresses after a `bctr`), the C++ exception tables' (address, state) pairs and `__except`
+continuations (reached only by the exception dispatcher, which this runtime does not run), and tail or epilogue code
+inside registered functions. A call through a pointer computed some other way can still only be found at run time
+(`tools/runtime_gap_resolver.py`).
+
+**The buzzing in the movies (the same bug).** The game's mixer output (`audio_dump_s`, the six channels before the
+host driver) over the opening movie, 6 s before it to 23 s in, in Ryujinx: rc3 turns into one steady 345 Hz tone 10 s
+into the movie (the strongest spectral line 85,000-99,000 times the band's median, every second to the end of the
+dump); with the codec fix the same seconds are ordinary audio (no line above 140 times the median, as rc1 over the
+same movie). The movies' sound goes through the same codec helpers (`sub_825EADF8`'s family). No dropouts, clicks or
+clipping in any dump. `out/audio_cmp/`, `audio_stats.py` in the session scratchpad.
+
+**Machine copies from the console profile.** `tools/switch_hot_bulk.py` on the rc3 console profile (with rc3's ELF)
+and the rc1 Ryujinx profile, every function with one sample or more: 832 bulk copies (217 before; tiny leaves the
+generator inlines and the forms the copy tool refuses left out), 827 after seven became natives. The copy tool's own
+register handling is the write-back the user asked about: registers in locals, written back at a return only when the
+function changed them, handed over at a call only when the callee can reach them. Ryujinx run `rc4pre_verify` with
+the guard on every call (`banjo_hot_guard_calls = 4000`, `banjo_hot_guard_period = 64`): 2,146,377 calls compared, 662
+of the 832 bulk copies reached, 0 differences.
+
+## Seven more natives (2026-10-31, the user's request: "hand optimise the top 7 functions of your choice")
+
+From the rc3 console profile. The hottest functions overall are not candidates: `sub_82277E70` (the main thread's
+14 %) is mostly the matrix natives it inlines, `sub_8221BC58` / `sub_822683D0` / `sub_82317F48` call other guest
+functions, `sub_826707B0` / `sub_826A13D8` are interlocked reference counts (the guard's roll-back would be seen by
+other threads), XThread0080's `sub_82539A88` / `sub_82536F90` / `sub_82541A50` are the game's audio engine, and
+`sub_8221BF20` (the collision ray cast, 4.5 %) round-trips dozens of temporaries through the stack that a native would
+have to leave as they end. The seven are the hottest pure-data leaves, each written from its generated statements in
+`app/src/cpu/hot/banjo_hand_natives.h` (the end of the file), banjo-nx's rule for scratch (volatile registers the
+original leaves behind are not reproduced; hand.txt names those that are):
+
+| Function | What | What the native removes |
+|---|---|---|
+| `sub_82316A78` | job threads' sphere test against a box | the four or five flush-mode switches a call (scalar steps through the mode-free helpers, vector steps checked for denormals; at most one switch) |
+| `sub_8275AA88` | N points by a 4x4 matrix, divided by w | four loop variants reduced to one formula a point; matrix read once; the in-place path declined |
+| `sub_8275A828` | N vectors by a 3x3 matrix | the matrix read again for every vector |
+| `sub_8276E3D8` | integration step of N bodies | the array's address read again after every store |
+| `sub_827596B0` | 4x4 matrix product r3 = r4 x r5 | the context traffic of 76 statements |
+| `sub_8270FE40` | four vectors, a scale and a flag into an object | per-word conversions and cards |
+| `sub_824E97F0` | sine | the context and stack traffic (its flush-mode switches stay: the polynomial's smallest terms are denormals for ordinary angles) |
+
+The host's flush-mode switch is an `msr fpcr` with no memory operand; each native orders its arithmetic around the
+switch it makes (a compiler barrier after it with the inputs read from memory, or the values pinned to registers).

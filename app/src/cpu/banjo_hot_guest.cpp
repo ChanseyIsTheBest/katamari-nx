@@ -167,6 +167,28 @@ REXCVAR_DEFINE_BOOL(katamari_hand_vec4_update, true, "Katamari/Enhancements",
                     "the four compares and the writes in registers; checked by the guards of the hooks that contain it")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+REXCVAR_DEFINE_BOOL(katamari_hand_matrix_product, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's 4x4 matrix product r3 = r4 x r5 (sub_827596B0): the original's sixteen dot products on locals, one write of the result; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_vector_set, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's four-vector and scale set (sub_8270FE40): sixteen words, the scale and the flag in three writes; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_sphere_box, true, "Katamari/Enhancements",
+                    "Hand-written native of the job threads' sphere test against a box (sub_82316A78): no flush-mode switch in the middle (scalar steps mode-free, vector steps checked for denormals), one write of the stack temporary; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_rotate_vectors, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's 3x3 rotation of N vectors (sub_8275A828): the matrix read once instead of for every vector; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_transform_points, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's 4x4 point transform with the divide by w (sub_8275AA88): the separate-output path, one formula per point; the in-place path stays generated; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_integrate, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's integration step of N bodies (sub_8276E3D8): the array's address read once instead of after every store; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(katamari_hand_sine, true, "Katamari/Enhancements",
+                    "Hand-written native of the game's sine (sub_824E97F0): the range reduction and the polynomial without the context and stack traffic, the stack temporaries written once; checked by the guards of the hooks that contain it")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace banjo::hand {
 
 uint8_t g_state[kNatives] = {};
@@ -176,14 +198,14 @@ constexpr const char* kNames[kNatives] = {"memcpy", "memset", "constant writers"
                                           "XAudio voice filter", "XAudio channel mix", "matrix copy",
                                           "matrix multiplies", "translation matrix", "identity matrix",
                                           "matrix comparison", "word copy", "string hash",
-                                          "4-float parameter set"};
+                                          "4-float parameter set", "matrix product", "four-vector set", "sphere-in-box test", "vector rotation", "point transform", "body integration", "sine"};
 constexpr const char* kKeys[kNatives] = {"banjo_hand_memcpy", "banjo_hand_memset", "banjo_hand_constants",
                                          "banjo_hand_state_flush", "banjo_hand_audio_filter",
                                          "banjo_hand_xaudio_mix", "katamari_hand_matrix_copy",
                                          "katamari_hand_matrix_multiply", "katamari_hand_matrix_translation",
                                          "katamari_hand_matrix_identity", "katamari_hand_matrix_compare",
                                          "katamari_hand_copy_words", "katamari_hand_string_hash",
-                                         "katamari_hand_vec4_update"};
+                                         "katamari_hand_vec4_update", "katamari_hand_matrix_product", "katamari_hand_vector_set", "katamari_hand_sphere_box", "katamari_hand_rotate_vectors", "katamari_hand_transform_points", "katamari_hand_integrate", "katamari_hand_sine"};
 bool Own(uint32_t which) {
   return which == kMemcpy           ? bool(REXCVAR_GET(banjo_hand_memcpy))
          : which == kMemset         ? bool(REXCVAR_GET(banjo_hand_memset))
@@ -198,6 +220,13 @@ bool Own(uint32_t which) {
          : which == kMatCompare     ? bool(REXCVAR_GET(katamari_hand_matrix_compare))
          : which == kCopyWords      ? bool(REXCVAR_GET(katamari_hand_copy_words))
          : which == kStringHash     ? bool(REXCVAR_GET(katamari_hand_string_hash))
+         : which == kMatProduct     ? bool(REXCVAR_GET(katamari_hand_matrix_product))
+         : which == kVecSet         ? bool(REXCVAR_GET(katamari_hand_vector_set))
+         : which == kSphereBox      ? bool(REXCVAR_GET(katamari_hand_sphere_box))
+         : which == kRotate         ? bool(REXCVAR_GET(katamari_hand_rotate_vectors))
+         : which == kTransform      ? bool(REXCVAR_GET(katamari_hand_transform_points))
+         : which == kIntegrate      ? bool(REXCVAR_GET(katamari_hand_integrate))
+         : which == kSine           ? bool(REXCVAR_GET(katamari_hand_sine))
                                     : bool(REXCVAR_GET(katamari_hand_vec4_update));
 }
 // banjo_hot_count: calls by size, bucket 0 = size 0, bucket k = sizes [2^(k-1), 2^k).

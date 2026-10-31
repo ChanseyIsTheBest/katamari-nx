@@ -9,6 +9,11 @@
 827E7A40 C runtime memset (hand-written native, banjo-nx's)
 827E73A8 C runtime word copy (hand-written native, 2026-10-30 evening)
 8266AF60 string hash (hand-written native, 2026-10-30 evening; ARM 187 samples)
+827596B0 4x4 matrix product, three operands (hand-written native, 2026-10-31)
+82316A78 sphere test against a box (job threads, 1.3 % of the console's guest samples) (hand-written native, 2026-10-31)
+8275A828 N vectors turned by a 3x3 matrix (hand-written native, 2026-10-31)
+8276E3D8 integration step of N bodies (positions, rotations normalised) (hand-written native, 2026-10-31)
+824E97F0 sine (range reduction and polynomial) (hand-written native, 2026-10-31)
 # The top 100 others of the profile (machine-optimised: localized copies, small callees inlined, direct dispatch).
 # Left out (the copy tool refuses them: an atomic compare-and-swap, state shared with other threads): 826A13D8,
 # 82210630, 826E9E38; the next ones of the profile take their places.

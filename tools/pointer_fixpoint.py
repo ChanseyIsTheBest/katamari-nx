@@ -81,16 +81,18 @@ def read_gaps(scratch):
 
 
 def built_addresses(image, lo, hi):
-    """Code addresses the code builds as constants: `lis rX,hi` followed (within 8 instructions, before rX is written
+    """Code addresses the code builds as constants: `lis rX,hi` followed (within 32 instructions, before rX is written
     again) by `addi rY,rX,lo` or `ori rY,rX,lo`. That is how a function pointer is passed as a callback or stored in
     a table at run time; no data word holds it, so the plain pointer scan misses it (SA2's sub_829427B8: built at
-    0x82942810, the 2-minute recording stopped at its first call). Yields (value, address of the addi/ori)."""
+    0x82942810, the 2-minute recording stopped at its first call). katamari-nx: the window was 8 instructions and
+    missed sub_823700C8 (lis r9 at 0x8237068C, addi r3,r9,200 nine instructions later; the console stopped on its
+    first call). Yields (value, address of the addi/ori)."""
     for off in range(lo - IMAGE_BASE, hi - IMAGE_BASE - 3, 4):
         x = struct.unpack_from('>I', image, off)[0]
         if x >> 26 != 15 or (x >> 16) & 31:  # lis rX,imm is addis rX,0,imm
             continue
         rx, upper = (x >> 21) & 31, (x & 0xFFFF) << 16
-        for k in range(1, 9):
+        for k in range(1, 33):
             y = struct.unpack_from('>I', image, off + 4 * k)[0]
             op, rt, ra, imm = y >> 26, (y >> 21) & 31, (y >> 16) & 31, y & 0xFFFF
             if op in (14, 24) and ra == rx:  # addi / ori from rX

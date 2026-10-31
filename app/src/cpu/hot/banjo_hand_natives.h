@@ -74,7 +74,14 @@ enum : uint32_t {
   kCopyWords = 11,
   kStringHash = 12,
   kVec4Update = 13,
-  kNatives = 14
+  kMatProduct = 14,
+  kVecSet = 15,
+  kSphereBox = 16,
+  kRotate = 17,
+  kTransform = 18,
+  kIntegrate = 19,
+  kSine = 20,
+  kNatives = 21
 };
 extern uint8_t g_state[kNatives];
 uint8_t Init(uint32_t which);
@@ -1235,5 +1242,528 @@ template <class S>
 }
 
 }  // namespace n_8271FAD0
+
+// ---------------------------------------------------------------------------------------------------------------------
+// katamari-nx (2026-10-31): seven more natives, the user's request "hand optimise the top 7 functions of your choice".
+// Chosen from the console profile of rc3 (builds/2026-10-31_0030_rc3_dlc_full, handheld clocks, two levels): the
+// hottest guest functions that are pure data transforms with no guest call. (The hottest of all either call other
+// guest functions, are already natives through their callees, are interlocked reference counts the guard cannot
+// compare, or are the movie and audio codecs.) Unlike the first Katamari natives these follow banjo-nx's rule for
+// scratch: the volatile registers the original leaves behind are not reproduced (hand.txt names the ones that are),
+// so the work is the guest memory, the return value and the host flush mode, which the guard compares as before.
+
+namespace katamari {
+
+// [a, a + n) and [b, b + m) share a byte (n, m >= 1; neither wraps: callers test Straight first).
+[[gnu::always_inline]] inline bool Overlap(uint32_t a, uint32_t n, uint32_t b, uint32_t m) {
+  return uint32_t(a - b) < m || uint32_t(b - a) < n;
+}
+
+[[gnu::always_inline]] inline void StoreW(uint8_t* p, uint32_t w) {
+  const uint32_t be = __builtin_bswap32(w);
+  std::memcpy(p, &be, 4);
+}
+
+[[gnu::always_inline]] inline uint32_t FloatBits(double d) {
+  const float f = float(d);  // d is already a single-precision value: exact in either flush mode
+  uint32_t w;
+  std::memcpy(&w, &f, 4);
+  return w;
+}
+
+[[gnu::always_inline]] inline double Round1(double d) { return double(float(d)); }
+
+// The host's flush-mode switch is an `msr fpcr` with no memory operand, so the compiler may move arithmetic on
+// values it holds in registers across it. Each native puts this barrier right after a switch and reads the inputs
+// of the arithmetic that must follow the switch from memory after it (and writes what must precede a switch to
+// memory before it).
+[[gnu::always_inline]] inline void Fence() { __asm__ __volatile__("" ::: "memory"); }
+
+// For a value that lives only in registers (a local whose address the compiler sees does not escape), the barrier
+// above does not order it: this ties the value to the point where it stands, in order with the switch.
+template <class T>
+[[gnu::always_inline]] inline void Pin(T& x) {
+#if defined(__aarch64__)
+  __asm__ __volatile__("" : "+w"(x));
+#elif defined(__x86_64__) || defined(_M_X64)
+  __asm__ __volatile__("" : "+x"(x));
+#endif
+}
+[[gnu::always_inline]] inline void PinW(uint32_t& x) { __asm__ __volatile__("" : "+r"(x)); }
+
+}  // namespace katamari
+
+// sub_827596B0 - 4x4 matrix product r3 = r4 x r5: the rows of r4 dotted with the columns of r5 (the second operand
+// transposed in registers by vmrghw / vmrglw, sixteen vmsum4fp128 as simde_mm_dp_ps). The original's statements in
+// their order, on locals; all eight loads come before the first store (in place is fine), the addresses rounded down
+// to 16 bytes as lvx128 / stvx128 do. Scratch not reproduced (hand.txt): r9, r10, v0-v13. The flush mode is switched
+// on where the original switches it.
+namespace n_827596B0 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kMatProduct)) [[unlikely]] return false;
+  const uint32_t dst = ctx.r3.u32 & ~15u, a = ctx.r4.u32 & ~15u, b = ctx.r5.u32 & ~15u;
+  if (!detail::Straight(dst, 64) || !detail::Straight(a, 64) || !detail::Straight(b, 64)) [[unlikely]] return false;
+  s.Hand(kMatProduct, 64);
+  using katamari::Dp;
+  using katamari::LoadV;
+  const uint8_t* pa = ::banjo::hot::Raw(base, a);
+  const uint8_t* pb = ::banjo::hot::Raw(base, b);
+  // The original switches the mode before its first vmsum4fp128; the loads and merges do not depend on it, so the
+  // switch comes first here and everything is read after it.
+  ctx.fpscr.enableFlushMode();
+  katamari::Fence();
+  simde__m128i v11 = LoadV(pb), v0 = LoadV(pa), v10 = LoadV(pb + 16), v9 = LoadV(pb + 32), v8 = LoadV(pb + 48);
+  simde__m128i v5 = simde_mm_unpacklo_epi32(v9, v11);
+  simde__m128i v7 = simde_mm_unpackhi_epi32(v9, v11);
+  simde__m128i v13 = LoadV(pa + 16);
+  simde__m128i v6 = simde_mm_unpackhi_epi32(v8, v10);
+  simde__m128i v12 = LoadV(pa + 32);
+  simde__m128i v4 = simde_mm_unpacklo_epi32(v8, v10);
+  v11 = LoadV(pa + 48);
+  v10 = simde_mm_unpackhi_epi32(v6, v7);
+  v9 = simde_mm_unpacklo_epi32(v6, v7);
+  v8 = simde_mm_unpackhi_epi32(v4, v5);
+  v7 = simde_mm_unpacklo_epi32(v4, v5);
+  v6 = Dp(v0, v10);
+  v5 = Dp(v0, v9);
+  v4 = Dp(v0, v8);
+  v0 = Dp(v0, v7);
+  simde__m128i v3 = Dp(v13, v9);
+  const simde__m128i v2 = Dp(v13, v7);
+  const simde__m128i v1 = Dp(v13, v8);
+  v13 = Dp(v13, v10);
+  v6 = simde_mm_unpackhi_epi32(v4, v6);
+  v4 = Dp(v12, v9);
+  v0 = simde_mm_unpackhi_epi32(v0, v5);
+  v9 = Dp(v11, v9);
+  v5 = simde_mm_unpackhi_epi32(v2, v3);
+  v3 = Dp(v12, v8);
+  v8 = Dp(v11, v8);
+  v0 = simde_mm_unpackhi_epi32(v0, v6);
+  v6 = Dp(v12, v7);
+  v12 = Dp(v12, v10);
+  v13 = simde_mm_unpackhi_epi32(v1, v13);
+  v7 = Dp(v11, v7);
+  v11 = Dp(v11, v10);
+  const simde__m128i row0 = v0;
+  const simde__m128i row1 = simde_mm_unpackhi_epi32(v5, v13);
+  v10 = simde_mm_unpackhi_epi32(v6, v4);
+  v13 = simde_mm_unpackhi_epi32(v3, v12);
+  v12 = simde_mm_unpackhi_epi32(v7, v9);
+  v0 = simde_mm_unpackhi_epi32(v8, v11);
+  const simde__m128i row2 = simde_mm_unpackhi_epi32(v10, v13);
+  const simde__m128i row3 = simde_mm_unpackhi_epi32(v12, v0);
+  if (!s.Note(dst, 64)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, 64);
+  uint8_t* d = ::banjo::hot::Raw(base, dst);
+  katamari::StoreV(d, row0);
+  katamari::StoreV(d + 16, row1);
+  katamari::StoreV(d + 32, row2);
+  katamari::StoreV(d + 48, row3);
+  return true;
+}
+
+}  // namespace n_827596B0
+
+// sub_8270FE40 - four 16-byte vectors (r4, r5, r6, r7) into the object at r3 + 4168 ... 4231, the single in f1 at
+// r3 + 4232, and bit 0 set in the word at r3 + 3604. The original: sixteen lfs / stfs pairs (a signalling NaN comes
+// out quiet: rex::ppc::QuietSingleBits, as the processed generated code does), the flag word read, the flush mode off,
+// f1 stored, the flag written back. Here the sixteen words, the single and the flag go in three writes. Declined: a
+// source that overlaps either destination (the original's word-by-word order would then show). No register written
+// (f0 and r11 are locals of the generated function).
+namespace n_8270FE40 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kVecSet)) [[unlikely]] return false;
+  const uint32_t obj = ctx.r3.u32, dst = obj + 4168u, flag = obj + 3604u;
+  const uint32_t src[4] = {ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32};
+  if (!detail::Straight(dst, 68) || !detail::Straight(flag, 4)) [[unlikely]] return false;
+  for (uint32_t k = 0; k < 4; ++k) {
+    if (!detail::Straight(src[k], 16) || katamari::Overlap(src[k], 16, dst, 68) ||
+        katamari::Overlap(src[k], 16, flag, 4)) [[unlikely]]
+      return false;
+  }
+  s.Hand(kVecSet, 72);
+  uint32_t w[17];
+  for (uint32_t k = 0; k < 4; ++k) {
+    const uint8_t* p = ::banjo::hot::Raw(base, src[k]);
+    for (uint32_t j = 0; j < 4; ++j) w[4 * k + j] = ::rex::ppc::QuietSingleBits(katamari::LoadW(p + 4 * j));
+  }
+  const uint32_t flag_word = katamari::LoadW(::banjo::hot::Raw(base, flag)) | 1u;
+  ctx.fpscr.disableFlushMode();
+  katamari::Fence();
+  w[16] = katamari::FloatBits(ctx.f1.f64);  // read after the switch: the original's stfs runs with the mode off
+  if (!s.Note(dst, 68) || !s.Note(flag, 4)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, dst, 68);
+  ::banjo::hot::Card(base, flag, 4);
+  uint8_t* d = ::banjo::hot::Raw(base, dst);
+  for (uint32_t k = 0; k < 17; ++k) katamari::StoreW(d + 4 * k, w[k]);
+  katamari::StoreW(::banjo::hot::Raw(base, flag), flag_word);
+  return true;
+}
+
+}  // namespace n_8270FE40
+
+// sub_82316A78 - the worker threads' sphere test against a box (10 % of each of the four job threads on the console):
+// r3 = 1 when the length of the point at r4 is below 2/3 of the length of the box's diagonal (r3's box: the word at
+// r3 + 4 is its offset from r3; corners at +0 and +16), else 0. The original goes back and forth between the scalar
+// unit (the point's length, the diagonal's components, flush mode off) and the vector unit (the diagonal's length by
+// vmsum3fp128 and a Newton step of vrsqrtefp, flush mode on): four or five writes of the host's FPCR a call. Here no
+// mode switch in the middle: the scalar steps through the rex::ppc *AnyMode helpers (the flush-off result in either
+// mode) and the vector steps in whatever mode the host is in, which gives the original's flush-on results exactly when
+// no denormal input or result can occur; where one could (a component of the diagonal below 2^-63 that is not zero, a
+// squared length below 2^-124 or above 2^120, a point length below 2^-126) the call is declined before anything is
+// written. The mode ends on, as in the original, with at most one switch. The stack temporary at r1 - 16 (the three
+// components, then the vector over them) ends as the vector, written once; the stack pointer must be 16-aligned (the
+// vector store rounds down), else declined. Scratch not reproduced (hand.txt): f9-f13, v0, v8-v13.
+namespace n_82316A78 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kSphereBox)) [[unlikely]] return false;
+  const uint32_t obj = ctx.r3.u32, pt = ctx.r4.u32, sp = ctx.r1.u32;
+  if (sp & 15u) [[unlikely]] return false;
+  const uint32_t tmp = sp - 16u;
+  if (!detail::Straight(obj + 4u, 4) || !detail::Straight(pt, 12) || !detail::Straight(tmp, 16)) [[unlikely]]
+    return false;
+  const uint32_t box = obj + katamari::LoadW(::banjo::hot::Raw(base, obj + 4u));
+  if (!detail::Straight(box, 28)) [[unlikely]] return false;
+  const uint8_t* pp = ::banjo::hot::Raw(base, pt);
+  const uint8_t* pb = ::banjo::hot::Raw(base, box);
+  using ::rex::ppc::SingleToDoublePure;
+  // The point's length (fmuls / fmadds / fmadds / fsqrts with the flush mode off).
+  const double y = ::rex::ppc::SingleToDoubleAnyMode(katamari::LoadW(pp + 4));
+  const double yy = ::rex::ppc::MulSingleAnyMode(y, y);
+  const double x = ::rex::ppc::SingleToDoubleAnyMode(katamari::LoadW(pp));
+  const double z = SingleToDoublePure(katamari::LoadW(pp + 8));
+  const double s1 = std::fma(x, x, yy);
+  if (s1 != 0.0 && std::fabs(s1) < 0x1p-126) [[unlikely]] return false;
+  const double xy = katamari::Round1(s1);
+  const double s2 = std::fma(z, z, xy);
+  if (s2 != 0.0 && std::fabs(s2) < 0x1p-126) [[unlikely]] return false;
+  const double dist = REX_FSQRTS(katamari::Round1(s2));
+  // The diagonal (fsubs with the flush mode off).
+  const double d0 = ::rex::ppc::SubSingleAnyMode(SingleToDoublePure(katamari::LoadW(pb + 16)),
+                                                 SingleToDoublePure(katamari::LoadW(pb)));
+  const double d1 = ::rex::ppc::SubSingleAnyMode(SingleToDoublePure(katamari::LoadW(pb + 20)),
+                                                 SingleToDoublePure(katamari::LoadW(pb + 4)));
+  const double d2 = ::rex::ppc::SubSingleAnyMode(SingleToDoublePure(katamari::LoadW(pb + 24)),
+                                                 SingleToDoublePure(katamari::LoadW(pb + 8)));
+  // The vector the original loads back from the stack: the three components and the fourth word as it was.
+  alignas(16) uint8_t vbuf[16];
+  katamari::StoreW(vbuf, katamari::FloatBits(d0));
+  katamari::StoreW(vbuf + 4, katamari::FloatBits(d1));
+  katamari::StoreW(vbuf + 8, katamari::FloatBits(d2));
+  std::memcpy(vbuf + 12, ::banjo::hot::Raw(base, tmp + 12u), 4);
+  const simde__m128 v13 = simde_mm_castsi128_ps(katamari::LoadV(vbuf));
+  const simde__m128 v0 = simde_mm_dp_ps(v13, v13, 0xEF);
+  if (!ctx.fpscr.flushModeIsOn()) {
+    const double d[3] = {d0, d1, d2};
+    for (double c : d)
+      if (c != 0.0 && std::fabs(c) < 0x1p-63) [[unlikely]] return false;
+    float l;
+    simde_mm_store_ss(&l, v0);
+    if ((l > 0.0f && l < 0x1p-124f) || l > 0x1p120f) [[unlikely]] return false;
+  }
+  const simde__m128 half = simde_mm_mul_ps(simde_mm_cvtepi32_ps(simde_mm_set1_epi32(1)),
+                                           simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x3F000000))));
+  const simde__m128 est = simde_mm_div_ps(simde_mm_set1_ps(1), simde_mm_sqrt_ps(v0));
+  const simde__m128 v9 = simde_mm_mul_ps(v0, half);
+  const simde__m128 v11 = simde_mm_cmpeq_ps(v0, simde_mm_castsi128_ps(simde_mm_set1_epi32(0)));
+  const simde__m128 v8 = simde_mm_mul_ps(est, est);
+  const simde__m128 v12 = simde_mm_xor_ps(simde_mm_sub_ps(simde_mm_mul_ps(v9, v8), half),
+                                          simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x80000000))));
+  const simde__m128 step = simde_mm_add_ps(simde_mm_mul_ps(est, v12), est);
+  const simde__m128 len = simde_mm_mul_ps(v0, step);
+  const simde__m128i out = REX_VSEL(simde_mm_castps_si128(v11), simde_mm_castps_si128(len), simde_mm_castps_si128(v0));
+  alignas(16) uint8_t obuf[16];
+  katamari::StoreV(obuf, out);
+  const double f12 = SingleToDoublePure(katamari::LoadW(obuf));
+  const double third2 = SingleToDoublePure(REX_RO_CFG_U32(0x820563DC, 0x3F2AAAABu, REX_LOAD_U32(0x820563DCu)));
+  const double limit = ::rex::ppc::MulSingleAnyMode(f12, third2);
+  PPCCRRegister cr6{};
+  ::rex::ppc::CompareAnyMode(cr6, dist, limit);
+  s.Hand(kSphereBox, 16);
+  ctx.r3.u64 = cr6.lt ? 1u : 0u;
+  if (!s.Note(tmp, 16)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, tmp, 16);
+  std::memcpy(::banjo::hot::Raw(base, tmp), obuf, 16);
+  katamari::Fence();  // everything above in the entry mode
+  ctx.fpscr.enableFlushMode();
+  return true;
+}
+
+}  // namespace n_82316A78
+
+// sub_8275A828 - r6 three-vectors at r4 turned by the 3x3 part of the 4x4 matrix at r3 into r5 (twelve bytes each;
+// four at a time, then one at a time, the same arithmetic). The original reads the nine matrix elements again for
+// every vector (a store could change them); here they are read once, after checking that the output does not overlap
+// the matrix (else declined), and each vector is read, turned and written in the original's order, so outputs that
+// overlap the inputs give what the original gives. Arithmetic as generated, with the flush mode off as the original
+// switches it before its loops (when there is a vector at all): out.x = R(fma(m0, x, R(fma(m32, z, R(m16 y))))),
+// out.y the same with m20, m36, m4, out.z = R(fma(y, m24, R(fma(m8, x, R(z m40))))), R the rounding to single.
+// A negative or very large count is declined (the original's unsigned tail count would run on). Scratch not
+// reproduced (hand.txt): r7-r10, f9-f13.
+namespace n_8275A828 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kRotate)) [[unlikely]] return false;
+  const uint32_t mtx = ctx.r3.u32, in = ctx.r4.u32, out = ctx.r5.u32;
+  const int32_t n = ctx.r6.s32;
+  if (n < 0 || n > 65536) [[unlikely]] return false;
+  if (n == 0) return true;
+  const uint32_t bytes = 12u * uint32_t(n);
+  if (!detail::Straight(mtx, 44) || !detail::Straight(in, bytes) || !detail::Straight(out, bytes) ||
+      katamari::Overlap(out, bytes, mtx, 44)) [[unlikely]]
+    return false;
+  s.Hand(kRotate, bytes);
+  ctx.fpscr.disableFlushMode();
+  katamari::Fence();
+  const uint8_t* pm = ::banjo::hot::Raw(base, mtx);
+  auto m = [&](uint32_t off) { return ::rex::ppc::SingleToDoublePure(katamari::LoadW(pm + off)); };
+  const double m0 = m(0), m4 = m(4), m8 = m(8), m16 = m(16), m20 = m(20), m24 = m(24), m32 = m(32), m36 = m(36),
+               m40 = m(40);
+  if (!s.Note(out, bytes)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, out, bytes);
+  const uint8_t* pi = ::banjo::hot::Raw(base, in);
+  uint8_t* po = ::banjo::hot::Raw(base, out);
+  using katamari::Round1;
+  for (uint32_t k = 0; k < uint32_t(n); ++k, pi += 12, po += 12) {
+    const double x = ::rex::ppc::SingleToDoublePure(katamari::LoadW(pi));
+    const double y = ::rex::ppc::SingleToDoublePure(katamari::LoadW(pi + 4));
+    const double z = ::rex::ppc::SingleToDoublePure(katamari::LoadW(pi + 8));
+    const double ox = Round1(std::fma(m0, x, Round1(std::fma(m32, z, REX_FMULS(m16, y)))));
+    katamari::StoreW(po, katamari::FloatBits(ox));
+    const double oy = Round1(std::fma(x, m4, Round1(std::fma(m36, z, REX_FMULS(m20, y)))));
+    katamari::StoreW(po + 4, katamari::FloatBits(oy));
+    const double oz = Round1(std::fma(y, m24, Round1(std::fma(m8, x, REX_FMULS(z, m40)))));
+    katamari::StoreW(po + 8, katamari::FloatBits(oz));
+  }
+  return true;
+}
+
+}  // namespace n_8275A828
+
+// sub_8275AA88 - r6 points at r4 transformed by the 4x4 matrix at r3 into r5, divided by w unless w is exactly 1
+// (a |w| below 5e-7, 0x350637BD, is replaced by +5e-7). The original has four loops for this (pairs, a tail, a four-
+// wide loop the pairs leave nothing for, and a separate path when r4 == r5); each point gets the same arithmetic,
+// x = R(R(fma(m0, x, R(fma(m32, z, R(m16 y))))) + m48) and so on, w = R(R(fma(m44, z, R(fma(m12, x, R(m28 y))))) +
+// m60), then 1/w as fdivs and three fmuls. The pairs loop reads both points before it writes either, so outputs that
+// overlap the inputs could differ from one point at a time: declined, as are r4 == r5 (the other path) and an output
+// over the matrix. Stack: the prologue's two saves (the link register's low word at r1 - 8, the zeroed local r31 at
+// r1 - 16) and |w| of the last point divided at r1 - 160 (the original clears the sign through memory), as the
+// original leaves them. Flush mode off, as the original switches it at once. Scratch not reproduced (hand.txt): r7-r10,
+// f1-f13, lr (the epilogue's mtlr reloads the saved word).
+namespace n_8275AA88 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kTransform)) [[unlikely]] return false;
+  const uint32_t mtx = ctx.r3.u32, in = ctx.r4.u32, out = ctx.r5.u32, sp = ctx.r1.u32;
+  const uint32_t n = ctx.r6.u32;
+  if (in == out || n > 65536u) [[unlikely]] return false;
+  const uint32_t bytes = 12u * n, frame = sp - 160u;
+  if (!detail::Straight(mtx, 64) || !detail::Straight(frame, 160)) [[unlikely]] return false;
+  if (n && (!detail::Straight(in, bytes) || !detail::Straight(out, bytes) || katamari::Overlap(in, bytes, out, bytes) ||
+            katamari::Overlap(out, bytes, mtx, 64) || katamari::Overlap(out, bytes, frame, 160))) [[unlikely]]
+    return false;
+  s.Hand(kTransform, bytes);
+  ctx.fpscr.disableFlushMode();
+  katamari::Fence();
+  const uint8_t* pm = ::banjo::hot::Raw(base, mtx);
+  auto m = [&](uint32_t off) { return ::rex::ppc::SingleToDoublePure(katamari::LoadW(pm + off)); };
+  const double m0 = m(0), m4 = m(4), m8 = m(8), m12 = m(12), m16 = m(16), m20 = m(20), m24 = m(24), m28 = m(28),
+               m32 = m(32), m36 = m(36), m40 = m(40), m44 = m(44), m48 = m(48), m52 = m(52), m56 = m(56),
+               m60 = m(60);
+  const double one = ::rex::ppc::SingleToDoublePure(REX_RO_U32(0x82000B38, 0x3F800000));
+  const double eps = ::rex::ppc::SingleToDoublePure(REX_RO_U32(0x820050F4, 0x350637BD));
+  if (!s.Note(frame + 144u, 16) || (n && !s.Note(out, bytes))) [[unlikely]] return true;
+  uint8_t* pf = ::banjo::hot::Raw(base, frame);
+  katamari::StoreW(pf + 152, uint32_t(ctx.lr));  // stw r12,-8(r1): the link register as the original reads it
+  std::memset(pf + 144, 0, 8);                   // std r31,-16(r1): the local r31, never set before
+  if (!n) return true;
+  ::banjo::hot::Card(base, out, bytes);
+  const uint8_t* pi = ::banjo::hot::Raw(base, in);
+  uint8_t* po = ::banjo::hot::Raw(base, out);
+  using katamari::Round1;
+  bool temp_written = false;
+  uint32_t temp_bits = 0;
+  for (uint32_t k = 0; k < n; ++k, pi += 12, po += 12) {
+    const double x = ::rex::ppc::SingleToDoublePure(katamari::LoadW(pi));
+    const double y = ::rex::ppc::SingleToDoublePure(katamari::LoadW(pi + 4));
+    const double z = ::rex::ppc::SingleToDoublePure(katamari::LoadW(pi + 8));
+    const double ox = REX_FADDS(Round1(std::fma(m0, x, Round1(std::fma(m32, z, REX_FMULS(m16, y))))), m48);
+    const double oy = REX_FADDS(Round1(std::fma(m4, x, Round1(std::fma(m36, z, REX_FMULS(m20, y))))), m52);
+    const double oz = REX_FADDS(Round1(std::fma(m8, x, Round1(std::fma(m40, z, REX_FMULS(m24, y))))), m56);
+    double w = REX_FADDS(Round1(std::fma(m44, z, Round1(std::fma(m12, x, REX_FMULS(m28, y))))), m60);
+    if (w == one) {
+      katamari::StoreW(po, katamari::FloatBits(ox));
+      katamari::StoreW(po + 4, katamari::FloatBits(oy));
+      katamari::StoreW(po + 8, katamari::FloatBits(oz));
+      continue;
+    }
+    temp_bits = katamari::FloatBits(w) & 0x7FFFFFFFu;
+    temp_written = true;
+    if (::rex::ppc::SingleToDoublePure(temp_bits) < eps) w = eps;
+    const double inv = REX_FDIVS(one, w);
+    katamari::StoreW(po, katamari::FloatBits(REX_FMULS(ox, inv)));
+    katamari::StoreW(po + 4, katamari::FloatBits(REX_FMULS(oy, inv)));
+    katamari::StoreW(po + 8, katamari::FloatBits(REX_FMULS(oz, inv)));
+  }
+  if (temp_written) {
+    if (!s.Note(frame, 4)) [[unlikely]] return true;
+    katamari::StoreW(pf, temp_bits);
+  }
+  return true;
+}
+
+}  // namespace n_8275AA88
+
+// sub_8276E3D8 - the integration step of r6 bodies (96 bytes each in the array whose address is the word at r3 + 16):
+// the byte at r3 + 169 toggled (which of two 32-byte slots of a body is read and which is written), then for each body
+// seven fmadds (the position and the rotation, slot += rate x f1 with the rates at +64 ... +88), the written rotation
+// normalised (four fmuls by 1 / sqrt of the sum of squares, as fsqrts / fdivs) and f2 stored at +28 of the written
+// slot. The original reads the array's address again after every store (a store could change it); here it is read
+// once, after checking that the array does not overlap the object's first 170 bytes (else declined); the toggle must
+// leave 0 or 1 (the two slot offsets it selects), else declined. The prologue's save of the local r31 (zero) at r1 - 8
+// is written as the original writes it. Flush mode off before the loop as in the original (when there is a body).
+// Scratch not reproduced (hand.txt): r4-r10, f9-f13.
+namespace n_8276E3D8 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kIntegrate)) [[unlikely]] return false;
+  const uint32_t obj = ctx.r3.u32, sp = ctx.r1.u32;
+  const int32_t n = ctx.r4.s32;
+  if (n > 65536) [[unlikely]] return false;
+  if (!detail::Straight(obj, 170) || !detail::Straight(sp - 8u, 8)) [[unlikely]] return false;
+  const uint8_t* po = ::banjo::hot::Raw(base, obj);
+  const uint8_t toggled = uint8_t(po[169] ^ 1u);
+  if (toggled > 1u) [[unlikely]] return false;
+  const uint32_t arr = katamari::LoadW(po + 16);
+  const uint32_t bytes = n > 0 ? 96u * uint32_t(n) : 0u;
+  if (n > 0 && (!detail::Straight(arr, bytes) || katamari::Overlap(arr, bytes, obj, 170) ||
+                katamari::Overlap(arr, bytes, sp - 8u, 8))) [[unlikely]]
+    return false;
+  // The two slot offsets (the original's two paths on the low byte of r7 give the same pair, swapped).
+  const bool by_toggle = (ctx.r7.u32 & 0xFFu) != 0;
+  const uint32_t write_slot = (by_toggle ? toggled : uint32_t(toggled == 0)) << 5;
+  const uint32_t read_slot = (by_toggle ? uint32_t(toggled == 0) : toggled) << 5;
+  s.Hand(kIntegrate, bytes);
+  if (!s.Note(sp - 8u, 8) || !s.Note(obj + 169u, 1) || (n > 0 && !s.Note(arr, bytes))) [[unlikely]] return true;
+  std::memset(::banjo::hot::Raw(base, sp - 8u), 0, 8);  // std r31,-8(r1): the local r31, never set before
+  ::banjo::hot::Card(base, obj + 169u, 1);
+  ::banjo::hot::Raw(base, obj)[169] = toggled;
+  if (n <= 0) return true;
+  ::banjo::hot::Card(base, arr, bytes);
+  ctx.fpscr.disableFlushMode();
+  katamari::Fence();
+  const double one = double(std::bit_cast<float>(uint32_t(REX_RO_U32(0x82000B38, 0x3F800000))));
+  const double dt = ctx.f1.f64;
+  const double f2 = ctx.f2.f64;
+  uint8_t* body = ::banjo::hot::Raw(base, arr);
+  auto F = [](const uint8_t* p) { return double(std::bit_cast<float>(katamari::LoadW(p))); };
+  using katamari::Round1;
+  for (int32_t k = 0; k < n; ++k, body += 96) {
+    const uint8_t* rd = body + read_slot;
+    uint8_t* wr = body + write_slot;
+    // Positions (three) and rotation (four): slot + rate x dt, in the original's order.
+    for (uint32_t c = 0; c < 7; ++c) {
+      const double v = Round1(std::fma(F(body + 64 + 4 * c), dt, F(rd + 4 * c)));
+      katamari::StoreW(wr + 4 * c, katamari::FloatBits(v));
+    }
+    const double q1 = F(wr + 4);
+    double sum = REX_FMULS(q1, q1);
+    const double q0 = F(wr), q2 = F(wr + 8), q3 = F(wr + 12);
+    sum = Round1(std::fma(q0, q0, sum));
+    sum = Round1(std::fma(q2, q2, sum));
+    sum = Round1(std::fma(q3, q3, sum));
+    const double inv = REX_FDIVS(one, REX_FSQRTS(sum));
+    katamari::StoreW(wr, katamari::FloatBits(REX_FMULS(q0, inv)));
+    katamari::StoreW(wr + 4, katamari::FloatBits(REX_FMULS(q1, inv)));
+    katamari::StoreW(wr + 8, katamari::FloatBits(REX_FMULS(q2, inv)));
+    katamari::StoreW(wr + 12, katamari::FloatBits(REX_FMULS(q3, inv)));
+    katamari::StoreW(wr + 28, katamari::FloatBits(f2));
+  }
+  return true;
+}
+
+}  // namespace n_8276E3D8
+
+// sub_824E97F0 - the game's sine: f1 = sin(f1). The angle reduced by a multiple of 2 pi (the sign of the angle
+// copied onto pi by rlwimi, the integer part of (angle + pi) / 2 pi by fctiwz through the stack, fnmsubs), then the
+// odd powers up to the 23rd in three vectors and three vmsum4fp128 with the coefficient vectors at 0x82000AA0 ...
+// 0x82000AC0, added as the original adds them. The original's flush-mode switches are kept (the reduction with the
+// mode off, the polynomial with it on: its smallest terms are denormals for ordinary small angles, where the mode
+// decides the result); what is gone is the traffic: the stack temporaries are written once, as they end (three
+// vectors at r1 - 48, r1 - 32, r1 - 16; the stack pointer must be 16-aligned, else declined), and nothing goes
+// through the context. Scratch not reproduced (hand.txt): r9, r10, f12, f13, v0, v9-v13.
+namespace n_824E97F0 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kSine)) [[unlikely]] return false;
+  const uint32_t sp = ctx.r1.u32;
+  if ((sp & 15u) || !detail::Straight(sp - 48u, 48)) [[unlikely]] return false;
+  s.Hand(kSine, 48);
+  // stfs f1,-48(r1); the sign of the stored single onto pi (0x40490FDB) by rlwimi.
+  const uint32_t angle_bits = std::bit_cast<uint32_t>(::rex::ppc::DoubleToSingleAnyMode(ctx.f1.f64));
+  const uint32_t pi_bits = (angle_bits & 0x80000000u) | 0x40490FDBu;
+  const double two_pi = ::rex::ppc::SingleToDoubleAnyMode(REX_RO_U32(0x820050B8, 0x40C90FDB));
+  ctx.fpscr.disableFlushMode();
+  katamari::Fence();
+  const double angle = ctx.f1.f64;
+  const double signed_pi = double(std::bit_cast<float>(pi_bits));
+  const double shifted = double(float(signed_pi + angle));
+  const double turns = REX_FMULS(shifted, double(std::bit_cast<float>(uint32_t(REX_RO_U32(0x82005148, 0x3E22F983)))));
+  const double whole = double(float(double(int64_t(int32_t(::rex::ppc::fctiwz(turns))))));
+  const double r = double(float(-std::fma(whole, two_pi, -angle)));
+  const double r2 = REX_FMULS(r, r);
+  const double r3 = REX_FMULS(r2, r);
+  // The three stfs with the mode still off (a denormal single would be flushed by the conversion with it on).
+  uint32_t w1 = katamari::FloatBits(r), w2 = katamari::FloatBits(r2), w3 = katamari::FloatBits(r3);
+  katamari::PinW(w1);
+  katamari::PinW(w2);
+  katamari::PinW(w3);
+  alignas(16) uint8_t pw[16];
+  katamari::StoreW(pw, 0x3F800000u);  // QuietSingleBits(1.0f)
+  katamari::StoreW(pw + 4, w1);
+  katamari::StoreW(pw + 8, w2);
+  katamari::StoreW(pw + 12, w3);
+  const simde__m128 c0 = simde_mm_castsi128_ps(REX_RO_V128(0x82000AA0, 0x3F800000BE2AAAABull, 0x3C088889B9500D01ull));
+  const simde__m128 c1 = simde_mm_castsi128_ps(REX_RO_V128(0x82000AB0, 0x3638EF1DB2D7322Bull, 0x2F309231AB573F9Full));
+  const simde__m128 c2 = simde_mm_castsi128_ps(REX_RO_V128(0x82000AC0, 0x274A963CA317A4DAull, 0x1EB8DC789A3B0DA1ull));
+  simde__m128 v0 = simde_mm_castsi128_ps(katamari::LoadV(pw));
+  ctx.fpscr.enableFlushModeUnconditional();
+  katamari::Pin(v0);  // the vector arithmetic below after the switch
+  simde__m128 v13 = simde_mm_castsi128_ps(simde_mm_shuffle_epi32(simde_mm_castps_si128(v0), 0xAA));
+  v0 = simde_mm_mul_ps(v0, v0);
+  v0 = simde_mm_mul_ps(v0, v13);
+  const simde__m128 v9 = simde_mm_castsi128_ps(simde_mm_shuffle_epi32(simde_mm_castps_si128(v0), 0x0));
+  const simde__m128 v10 = simde_mm_dp_ps(v0, c0, 0xFF);
+  v13 = simde_mm_mul_ps(v9, v13);
+  v0 = simde_mm_mul_ps(v0, v13);
+  v13 = simde_mm_mul_ps(v0, v13);
+  v0 = simde_mm_dp_ps(v0, c1, 0xFF);
+  v13 = simde_mm_dp_ps(v13, c2, 0xFF);
+  alignas(16) uint8_t out[48];
+  katamari::StoreV(out, simde_mm_castps_si128(v13));
+  katamari::StoreV(out + 16, simde_mm_castps_si128(v0));
+  katamari::StoreV(out + 32, simde_mm_castps_si128(v10));
+  const double a = ::rex::ppc::SingleToDoublePure(katamari::LoadW(out + 16));
+  const double b = ::rex::ppc::SingleToDoublePure(katamari::LoadW(out));
+  const double c = ::rex::ppc::SingleToDoublePure(katamari::LoadW(out + 32));
+  ctx.f1.f64 = ::rex::ppc::AddSingleAnyMode(::rex::ppc::AddSingleAnyMode(b, a), c);
+  if (!s.Note(sp - 48u, 48)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, sp - 48u, 48);
+  std::memcpy(::banjo::hot::Raw(base, sp - 48u), out, 48);
+  return true;
+}
+
+}  // namespace n_824E97F0
 
 }  // namespace banjo::hand

@@ -24,6 +24,7 @@
 "0x82370098" = { }  # 4 instructions, built at 0x823706B8
 "0x823700A8" = { }  # 4 instructions, built at 0x823706B4
 "0x823700B8" = { }  # 4 instructions, built at 0x823706BC
+"0x823700C8" = { }  # 4 instructions (vcall thunk, slot 36), built at 0x823706B0 from a lis 9 instructions earlier; the console stopped on it leaving the collection menu (rc2)
 "0x823BBEA8" = { }  # 4 instructions, built at 0x823BBFFC (+2 more)
 "0x823BBEB8" = { }  # 4 instructions, built at 0x823BC000 (+1 more)
 "0x823ED890" = { share_registers = true }  # 21 instructions, pointer at 0x820805E8; share_registers: reads r30 r31 its parent set up

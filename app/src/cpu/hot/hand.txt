@@ -24,3 +24,11 @@
 827E73A8   # C runtime word copy [ARM 33; inlined into the copies of the vector memcpy sub_824BFE50, ARM 1,230]
 827595D0 exact=f13   # identity matrix [ARM 27]
 82759A00 exact=r3,f12,f13   # matrix comparison within a tolerance (PC hot)
+# 2026-10-31: seven more, the user's request "hand optimise the top 7 functions of your choice": the hottest pure-data leaves of the rc3 console profile (docs/katamari-notes.md, "Seven more natives").
+827596B0   # 4x4 matrix product, three operands
+8270FE40   # four vectors, a scale and a flag into an object
+82316A78 exact=r3   # sphere test against a box (job threads, 1.3 % of the console's guest samples)
+8275A828   # N vectors turned by a 3x3 matrix
+8275AA88   # N points by a 4x4 matrix with the divide by w (job threads, 1.1 %)
+8276E3D8   # integration step of N bodies (positions, rotations normalised)
+824E97F0 exact=f1   # sine (range reduction and polynomial)
