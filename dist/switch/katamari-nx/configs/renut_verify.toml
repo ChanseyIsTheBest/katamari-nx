@@ -595,6 +595,7 @@ banjo_renut_chain_reuse_verify = true
 banjo_renut_snapshot_deltas_verify = true
 banjo_renut_store_cards_verify = true
 banjo_renut_record_extents_verify = true
+katamari_hand_sphere_box = true
 
 [input_p1]
 a = ""

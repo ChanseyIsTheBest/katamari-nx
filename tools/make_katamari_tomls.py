@@ -48,6 +48,9 @@ SHIPPED = {
     'katamari_hand_matrix_copy': 'true',
     'katamari_hand_matrix_multiply': 'true',
     'katamari_hand_matrix_translation': 'true',
+    # The sphere-test native (2026-10-31) is off until a guarded run has reached it: the emulator's scripted run
+    # stays in the practice room, where the job threads' collision code never runs. renut_verify.toml has it on.
+    'katamari_hand_sphere_box': 'false',
 }
 PLAY = {'banjo_renut_diag_resolve_trace': 'false', 'banjo_renut_diag_gpu_shaders': 'false',
         'banjo_renut_diag_terrain': 'false'}
@@ -65,7 +68,8 @@ VERIFY = {k: 'true' for k in (
     'banjo_renut_snapshot_deltas_verify', 'banjo_renut_store_cards_verify', 'banjo_renut_record_extents_verify')}
 # The CPU natives' guard (banjo_hot_guest.cpp): each thread's first 4000 calls of every native compared with the
 # generated original, then one in 64 ("[hot] DIFFERENCE" lines; the 10-s "[hot]" report counts the checks).
-VERIFY.update({'banjo_hot_guard_calls': '4000', 'banjo_hot_guard_period': '64'})
+VERIFY.update({'banjo_hot_guard_calls': '4000', 'banjo_hot_guard_period': '64',
+               'katamari_hand_sphere_box': 'true'})
 CONFIGS = {
     'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
                                   'must count 0 differences)'),

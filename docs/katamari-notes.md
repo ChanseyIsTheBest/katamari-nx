@@ -475,3 +475,14 @@ original leaves behind are not reproduced; hand.txt names those that are):
 
 The host's flush-mode switch is an `msr fpcr` with no memory operand; each native orders its arithmetic around the
 switch it makes (a compiler barrier after it with the inputs read from memory, or the values pinned to registers).
+
+**Checked (Ryujinx, the build with the natives; the guard on every call, `banjo_hot_guard_calls = 4000`,
+`banjo_hot_guard_period = 64`).** Run `rc4_verify` (380 s, the scripted pad into the practice room): 3,594,019 calls
+compared, 0 differences. Run `rc4_long_verify` (12 min, the sticks rolling in the practice room from 240 s):
+7,980,028 calls compared, 731 of the 827 bulk copies reached, 0 differences, no FATAL. Six of the seven natives
+compared with the generated original through their hooks (`sub_827596B0` 8,932 calls compared of about 320,000,
+`sub_8275AA88` 5,540 of 102,560, `sub_8270FE40` 4,282, `sub_8275A828` 4,128, `sub_8276E3D8` 4,047, `sub_824E97F0`
+4,015): 0 differences. `sub_82316A78` (the sphere test) was not reached: the job threads' collision code
+(`sub_8221BF20`, `sub_8221BC58`, `sub_82317F48`, it) runs in the game's levels, which the scripted run does not reach.
+So its key, `katamari_hand_sphere_box`, ships **off** in `renut.toml` and is on in `configs/renut_verify.toml` (a level
+played with that config checks it; `[hot] ... differences: 0`).

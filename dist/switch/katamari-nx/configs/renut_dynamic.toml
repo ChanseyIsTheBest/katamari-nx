@@ -586,6 +586,7 @@ renut_ambient_occlusion = "Half"
 katamari_hand_matrix_copy = true
 katamari_hand_matrix_multiply = true
 katamari_hand_matrix_translation = true
+katamari_hand_sphere_box = false
 
 [input_p1]
 a = ""
