@@ -659,7 +659,10 @@ the user's captures were stored only at offsets that are not a multiple of 4.
 - The 71 shaders of the package with 2.0.5526 are the executable's video decoder's.
 - The DLC packages (16, about 320 KB each) hold unlock data only: no CPDB blocks, no containers. The DLC stages'
   models are on the disc.
-- Package: `out/renut_shader_dump` 153 -> 195.
+- Package: `out/renut_shader_dump` 153 -> 195. The DKSH cache, which had not been remade since 2026-10-30 (207
+  variants), was rebuilt with every shader's generic variant: `tools/deko3d_variant_cache.py --generic --list <emulator
+  SD pipeline_list.bin> --merge <emulator SD deko3d_shaders.bin>`, 337 variants, 3.4 MB, 0 failed. Without it, the
+  console would compile the new shaders the first time a stage draws them.
 
 **The user's DLC switch.** `katamari_dlc_unlock_packs` (app, `renut_engine/dlc_install.cpp`). **False by default,
 the user's choice** (first written true, then "could you have those DLC packs off by default"). False keeps the nine
