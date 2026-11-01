@@ -134,8 +134,10 @@ def depth_writes(dc, stencil_ref_mask=None):
         return 0
     return 1 if ops else 0
 
-LOC_IN_RE = re.compile(r'^layout\(location = (\d+)\) in ', re.M)
-LOC_OUT_RE = re.compile(r'^layout\(location = (\d+)\) out ', re.M)
+# 2026-11-01 (rc10's black screen): an interpolation qualifier may come first ("centroid in", XenosRecomp), as
+# plume_deko3d's own parse takes it.
+LOC_IN_RE = re.compile(r'^layout\(location = (\d+)\) (?:(?:centroid|sample|noperspective|flat) )?in ', re.M)
+LOC_OUT_RE = re.compile(r'^layout\(location = (\d+)\) (?:(?:centroid|sample|noperspective|flat) )?out ', re.M)
 
 
 _MASKS = {}

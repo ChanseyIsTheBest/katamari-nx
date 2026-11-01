@@ -493,7 +493,8 @@ def pass_vsout(text):
 # passes: vszero / pszero — an input its vertex shader writes as zero (constant 906)
 
 ZERO_RE = re.compile(r'^(?:(?:vec[234])\()?0\.0\)?$')
-PSIN_RE = re.compile(r'^layout\(location = (\d+)\) in (\w+) (\w+);$', re.M)
+# 2026-11-01: an interpolation qualifier may come first ("centroid in", XenosRecomp)
+PSIN_RE = re.compile(r'^layout\(location = (\d+)\) (?:(?:centroid|sample|noperspective|flat) )?in (\w+) (\w+);$', re.M)
 PSZERO_DECL = ('#ifndef SPIRV_CROSS_CONSTANT_ID_906\n#define SPIRV_CROSS_CONSTANT_ID_906 0u\n#endif\n'
                'const uint g_banjoPsZeroIn = SPIRV_CROSS_CONSTANT_ID_906;\n')
 

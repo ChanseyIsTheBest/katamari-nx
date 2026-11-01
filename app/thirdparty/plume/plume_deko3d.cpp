@@ -1465,6 +1465,9 @@ namespace plume {
         // draws), the vertex index it does not read being the only thing that differs.
         shader->usage.readsVertexId = shader->stage != DkStage_Vertex || shader->glsl->find("gl_VertexID") != std::string::npos;
         // banjo-nx (2026-10-18): the varying locations it declares ("layout(location = N) in / out" lines).
+        // katamari-nx (2026-11-01, rc10's black screen): an interpolation qualifier may come first ("layout(location = N)
+        // centroid in", XenosRecomp's inputs the shader's header samples at the centroid); without it, those inputs were
+        // left out of the mask, the vertex shader's constant 905 dropped the outputs feeding them and they read nothing.
         {
             const char *key = "\nlayout(location = ";
             size_t p = 0;
@@ -1472,9 +1475,18 @@ namespace plume {
                 p += strlen(key);
                 char *end = nullptr;
                 const unsigned long loc = strtoul(shader->glsl->c_str() + p, &end, 10);
-                if (loc < 32 && end && strncmp(end, ") in ", 5) == 0)
+                if (loc >= 32 || !end || strncmp(end, ") ", 2) != 0)
+                    continue;
+                const char *q = end + 2;
+                for (const char *qualifier : {"centroid ", "sample ", "noperspective ", "flat "}) {
+                    if (strncmp(q, qualifier, strlen(qualifier)) == 0) {
+                        q += strlen(qualifier);
+                        break;
+                    }
+                }
+                if (strncmp(q, "in ", 3) == 0)
                     shader->usage.inputMask |= 1u << loc;
-                else if (loc < 32 && end && strncmp(end, ") out ", 6) == 0)
+                else if (strncmp(q, "out ", 4) == 0)
                     shader->usage.outputMask |= 1u << loc;
             }
         }
