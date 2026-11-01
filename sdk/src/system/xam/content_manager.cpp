@@ -48,6 +48,12 @@
 REXCVAR_DEFINE_STRING(content_backup_root, "", "Kernel",
                       "Folder where a copy of each save is left, with one subfolder per profile. "
                       "Empty = nothing is copied");
+// katamari-nx (2026-11-01): DLC kept from the game without uninstalling it (the user: Beautiful Katamari's packs that
+// only unlock what the game unlocks by itself take the fun out of unlocking it). The app's katamari_dlc_unlock_packs
+// adds those packs' names; anything listed here is left out of the game's DLC list, and emptying it shows them again.
+REXCVAR_DEFINE_STRING(dlc_hidden, "", "Kernel",
+                      "DLC packages the game is not shown: display names or package file names, separated by ';' "
+                      "(any case). They stay installed. Empty = every installed package is shown");
 
 namespace rex {
 namespace system {
@@ -82,6 +88,24 @@ std::string SafeName(const std::string_view original) {
     clean.pop_back();
   }
   return clean.empty() ? std::string("no_name") : clean;
+}
+
+// Whether dlc_hidden names this package, by its display name or its file name.
+bool DlcHidden(const XCONTENT_DATA& data) {
+  const std::string display = rex::string::to_utf8(data.display_name());
+  const std::string file = data.file_name();
+  std::string_view list = REXCVAR_GET(dlc_hidden);
+  while (!list.empty()) {
+    const size_t end = list.find(';');
+    std::string_view name = list.substr(0, end);
+    list = end == std::string_view::npos ? std::string_view{} : list.substr(end + 1);
+    while (!name.empty() && name.front() == ' ') name.remove_prefix(1);
+    while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
+    if (!name.empty() && (rex::string::utf8_equal_case(name, display) || rex::string::utf8_equal_case(name, file))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // What is inside a container, for the log. It is the line that says whether the save has data or not.
@@ -326,6 +350,15 @@ std::vector<XCONTENT_AGGREGATE_DATA> ContentManager::ListContent(uint32_t device
       content_data.xuid = xuid;
       result.emplace_back(std::move(content_data));
     }
+  }
+
+  if (content_type == XContentType::kMarketplaceContent && !REXCVAR_GET(dlc_hidden).empty()) {
+    std::erase_if(result, [](const XCONTENT_AGGREGATE_DATA& entry) {
+      if (!DlcHidden(entry)) return false;
+      REXSYS_INFO("[dlc] '{}' ({}) hidden (dlc_hidden)", rex::string::to_utf8(entry.display_name()),
+                  entry.file_name());
+      return true;
+    });
   }
 
   // What the game sees when it asks for the list of saves. If a profile that exists on disk does not show

@@ -17,7 +17,11 @@ sdmc:/switch/katamari-nx/game_root/           the disc's files: default.xex, d02
                                               (extract your ISO; the ISO itself is not read)
 sdmc:/switch/katamari-nx/dlc/                 the DLC packages (Xbox 360 LIVE files, content type 2), installed at the
                                               first start into sdmc:/switch/katamari-nx/renut/ (dlc/installed.txt lists
-                                              them); all 16 of Beautiful Katamari's packs load
+                                              them). The seven stage packs always load. The nine packs that only
+                                              unlock presents and cousins the game unlocks itself (Accessory Sets
+                                              A-D, Character Sets A-D, Special Accessory) are kept out of the game by
+                                              default: they stay installed, and katamari_dlc_unlock_packs = true in
+                                              renut.toml loads them too.
 
 The tomls
 ---------

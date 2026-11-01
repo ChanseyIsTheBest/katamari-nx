@@ -593,6 +593,10 @@ them. All 24 are valid containers whose names are their XXH3 (the hashes the log
 the generated `shader_cache.cpp`: its dependencies are the dump's files at configure time, so new captures do not
 rerun it), then `tools/switch_shaders.ps1`: 153 shaders, 153 compiled with uam (112 vertex, 41 pixel).
 
+**Corrected in rc9 (below): the shaders are precompiled after all**, stored whole in the compressed models next to
+their keys; the scan of the game's files found nothing only because it read them compressed. The paragraph as written
+in rc8:
+
 **Why a scan of the game's files cannot find them (unlike the other ports' games).** The executable links the whole
 D3DX HLSL compiler (its preprocessor and parser messages, the intrinsic table) and the game compiles its shaders at
 run time: each material carries a feature key such as `MT0_00000000_OP9_GR9_NM9_RL9_TA0_LT1_SK0_VC0_VFn1c0t0_00000000`
@@ -622,3 +626,50 @@ own compiler output byte for byte (Renut looks shaders up by the hash of the com
 Ryujinx frame rates of this round are not comparable: a `node` process on the PC used about nine cores during the
 runs (rc7's own NRO also fell to 14-37 fps in them). rc8 changes only the shader package and the off-by-default
 diagnostic.
+
+## rc9 (2026-11-01): every shader from the game's files; a switch for the unlock-only DLC
+
+**CPDB, solved** (`tools/cpdb.py`, read from the generated code). The loader sub_824A77D0 reads the 16-byte header
+and picks the decoder by its byte 4: 0 stored (the bytes after the header), 1 plain LZSS (sub_824B35D8), 2 Huffman
+LZSS (sub_824B3500 with sub_824B3688 / sub_824B3458). Header bytes 12-15 are the uncompressed size (big endian). The
+bit stream is 64-bit big-endian words, each read from its least significant bit (sub_824B3340).
+- Plain LZSS: a flag bit; 0 = an 8-bit literal; 1 = a 4-bit length (+3) and a 12-bit distance.
+- Huffman: blocks of a 16-bit entry count, a tree written depth first (1 = node: the 1-bit subtree, then the 0-bit
+  one; 0 = leaf, 9-bit symbol), then the entries (after a symbol of 256 or more, a 12-bit distance). Symbols below
+  256 are literals, the rest copy symbol - 253 bytes.
+- Copies go byte by byte from `out - distance`, so they may overlap themselves.
+- The record flag 0x20 is not the coding. The first guess read it that way, and every Huffman-flagged map then
+  failed; they are all LZSS.
+- Every file of the 31 categories decodes to its record's size: 5.9 GB once the alternate tables' repeats are
+  skipped (`tools/katamari_files.py`, about 15 minutes).
+- Two exceptions:
+  - The three stored fonts are shorter than their records, whose size is then the buffer's.
+  - Test[4] says coding 1 but is Huffman: an older packer, and the game never loads the Test category. It is the
+    compressed copy of Test[5]; the decoder falls back to the other coding when a stream does not fit its header.
+
+**The shaders are precompiled after all.** The models store Alchemy's igVertexShaderInfo / igPixelShaderInfo with
+the compiled containers whole, at any byte offset. The material key strings (28 distinct, e.g.
+`MT1_10000000_OP9_..._VFn1c0t1_00000000`) are only their names. `find_shader_headers(data, aligned=False)`: three of
+the user's captures were stored only at offsets that are not a multiple of 4.
+- 84 distinct containers: 42 already in the package, 42 new (Idv 28, Map 8, Test 4, Core 1, Item 1), all valid.
+  **All 24 of the user's console captures are among them**, so the DLC stages need no console capture.
+- The HLSL library (npLib, 88 sources with their `#define` headers) is in Test[5] only.
+- Compiler version strings in the data: 2.0.4314, 4929, 5426 and 5632. One shader built by two compilers differs
+  only in that string, so it hashes differently; both builds are stored.
+- The 71 shaders of the package with 2.0.5526 are the executable's video decoder's.
+- The DLC packages (16, about 320 KB each) hold unlock data only: no CPDB blocks, no containers. The DLC stages'
+  models are on the disc.
+- Package: `out/renut_shader_dump` 153 -> 195.
+
+**The user's DLC switch.** `katamari_dlc_unlock_packs` (app, `renut_engine/dlc_install.cpp`). **False by default,
+the user's choice** (first written true, then "could you have those DLC packs off by default"). False keeps the nine
+packs that only unlock presents and cousins the game unlocks itself (Accessory Sets A-D, Character Sets A-D, Special
+Accessory) from the game. It does this by adding their display names to the SDK's new `dlc_hidden` list, which
+`ContentManager::ListContent` leaves out of the game's marketplace content list (`[dlc] '...' hidden` in the log).
+- The packs stay installed, so true brings them back.
+- The seven stage packs always load. Mechanical Katamari is one of them (its description has you build Antlia from
+  mechanical objects), though the user's list of six left it out.
+- What a save already received from a hidden pack is not taken back.
+- Checked in Ryujinx (run `rc9_default`, a toml without the line, so the built-in default decides): the game's DLC
+  list 32 s into the run had the nine `[dlc] ... hidden` lines and 7 entries, the seven stage packs; 60 fps after it,
+  no errors, no shader captured.

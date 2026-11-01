@@ -588,6 +588,7 @@ katamari_hand_matrix_multiply = true
 katamari_hand_matrix_translation = true
 katamari_hand_sphere_box = false
 banjo_xma_frame_cache = false
+katamari_dlc_unlock_packs = false  # true: also load the accessory / character / special accessory packs
 
 [input_p1]
 a = ""

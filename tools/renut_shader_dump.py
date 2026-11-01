@@ -24,11 +24,12 @@ import xxhash
 SHADER_MAGIC = re.compile(rb"\x10\x2a\x11", re.S)
 
 
-def find_shader_headers(data):
+def find_shader_headers(data, aligned=True):
+    """aligned=False for data files that pack containers at any byte (Beautiful Katamari's models)."""
     hdrs = []
     for m in SHADER_MAGIC.finditer(data):
         o = m.start()
-        if o % 4 or o + 0x24 > len(data):
+        if (aligned and o % 4) or o + 0x24 > len(data):
             continue
         virt, phys = struct.unpack_from(">II", data, o + 4)
         ct, dt, so = struct.unpack_from(">III", data, o + 0x10)

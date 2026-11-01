@@ -597,6 +597,7 @@ banjo_renut_store_cards_verify = true
 banjo_renut_record_extents_verify = true
 katamari_hand_sphere_box = true
 banjo_xma_frame_cache = false
+katamari_dlc_unlock_packs = false  # true: also load the accessory / character / special accessory packs
 
 [input_p1]
 a = ""

@@ -596,6 +596,7 @@ audio_dump_from_s = 3
 audio_dump_xma_s = 20
 audio_dump_xma_from_s = 3
 audio_dump_xma_contexts = 12
+katamari_dlc_unlock_packs = false  # true: also load the accessory / character / special accessory packs
 
 [input_p1]
 a = ""

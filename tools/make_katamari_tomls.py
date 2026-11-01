@@ -59,6 +59,9 @@ SHIPPED = {
     # The sphere-test native (2026-10-31) is off until a guarded run has reached it: the emulator's scripted run
     # stays in the practice room, where the job threads' collision code never runs. renut_verify.toml has it on.
     'katamari_hand_sphere_box': 'false',
+    # The user's switch (2026-11-01), off by default (their choice): the nine DLC packs that only unlock presents and
+    # cousins (Accessory Sets A-D, Character Sets A-D, Special Accessory) are kept from the game; the stage packs stay.
+    'katamari_dlc_unlock_packs': 'false  # true: also load the accessory / character / special accessory packs',
 }
 PLAY = {'banjo_renut_diag_resolve_trace': 'false', 'banjo_renut_diag_gpu_shaders': 'false',
         'banjo_renut_diag_terrain': 'false'}
