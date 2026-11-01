@@ -8,13 +8,20 @@
 #      tools/deko3d_shader_package.py -> app/out/renut_switch/deko3d_glsl*.{bin,cpp};
 #   3. tools/renut_switch_shader_cache.py --pc app/out/pc -> app/out/renut_switch/shader_cache_switch.cpp.
 #   powershell -File tools/switch_shaders.ps1
+# katamari-nx (2026-11-02): XenosRecomp samples inputs at the centroid under MSAA as each shader's header asks
+# (BANJO_CENTROID, on unless 0). -NoCentroid translates with BANJO_CENTROID=0 (rc9's shaders) into its own folders
+# (out/deko3d_shaders_nocentroid, app/out/renut_switch_nocentroid: a GLSL package the runtime loads from the SD,
+# /switch/katamari_nx/deko3d_glsl.bin), step 3 left out (the NRO's own shader cache stays the default set's).
+param([switch]$NoCentroid)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $py = "C:\Python314\python.exe"
 $exe = Join-Path $root "app\out\pc\xenos_recomp\build\XenosRecomp\XenosRecomp.exe"
 $common = Join-Path $root "app\thirdparty\reblue-XenosRecomp\XenosRecomp\shader_common.h"
 $dump = Join-Path $root "out\renut_shader_dump"
-$work = Join-Path $root "out\deko3d_shaders"
+$work = Join-Path $root $(if ($NoCentroid) { "out\deko3d_shaders_nocentroid" } else { "out\deko3d_shaders" })
+$pkg = $(if ($NoCentroid) { "app\out\renut_switch_nocentroid" } else { "app\out\renut_switch" })
+if ($NoCentroid) { $env:BANJO_CENTROID = "0" } else { Remove-Item Env:\BANJO_CENTROID -ErrorAction SilentlyContinue }
 $early = Join-Path $work "early_alpha_hlsl"
 $spirv = Join-Path $work "spirv"
 foreach ($d in @($early, $spirv)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; New-Item -ItemType Directory -Force $d | Out-Null }
@@ -36,9 +43,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "deko3d_shaders.py failed" }
     & $py tools\deko3d_glsl_opt.py --in (Join-Path $work "glsl") --out (Join-Path $work "glsl_opt")
     if ($LASTEXITCODE -ne 0) { throw "deko3d_glsl_opt.py failed" }
-    & $py tools\deko3d_shader_package.py --glsl (Join-Path $work "glsl_opt") --out app\out\renut_switch
+    & $py tools\deko3d_shader_package.py --glsl (Join-Path $work "glsl_opt") --out $pkg
     if ($LASTEXITCODE -ne 0) { throw "deko3d_shader_package.py failed" }
-    & $py tools\renut_switch_shader_cache.py --pc app\out\pc
-    if ($LASTEXITCODE -ne 0) { throw "renut_switch_shader_cache.py failed" }
-} finally { Pop-Location }
-Get-ChildItem (Join-Path $root "app\out\renut_switch") | Select-Object Name, Length
+    if (-not $NoCentroid) {
+        & $py tools\renut_switch_shader_cache.py --pc app\out\pc
+        if ($LASTEXITCODE -ne 0) { throw "renut_switch_shader_cache.py failed" }
+    }
+} finally { Pop-Location; Remove-Item Env:\BANJO_CENTROID -ErrorAction SilentlyContinue }
+Get-ChildItem (Join-Path $root $pkg) | Select-Object Name, Length

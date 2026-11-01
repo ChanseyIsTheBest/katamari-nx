@@ -738,3 +738,29 @@ integrated GPU) and the DLC installed (the user's save needs it). It draws the w
   SQ_CONTEXT_MISC, field18 = its SQ_INTERPOLATOR_CNTL); XenosRecomp (RENUT_RECOMP) now declares each input
   `centroid` by Xenia's rule. Only MSAA draws change (a single-sample pixel's centroid is its centre). All 195
   shaders compile with uam; the DKSH cache remade (273 variants).
+
+## rc10b (2026-11-01/02): rc10's black screen; centroid checked
+
+**rc10 was black** on the console and in Ryujinx alike (the logos, the title, the menus; the opening movie drew).
+plume_deko3d learns which varyings a pixel shader reads from its `layout(location = N) in` lines (the vertex
+shader's constant 905, `Deko3DOptions::vsOutputs`, drops every output nothing reads). rc10's `layout(location = N)
+centroid in` did not match: those inputs were left out of the mask, the vertex shaders stopped writing them, and the
+pixel shaders read nothing. The same parse in `tools/deko3d_variant_cache.py` (the DKSH cache's 905 masks) and in
+`tools/deko3d_glsl_opt.py` (pszero's input list) now take an interpolation qualifier first. rc10b's NRO f70c972a256f,
+cache 15f8c4e588ca (273 variants, 0 failed).
+
+**Centroid, checked where it can be.** Ryujinx decodes the IPA instruction's sample mode (bits 52-53) and never
+applies it: its captures keep the presents menu's line with and without centroid (row 371 identical). uam's output is
+standard: the circle's shader (ps 835AAC3F43888B52, TEXCOORD0 and COLOR0 centroid, FOG0 centre) differs from the
+centre-sampled one only in the centroid bit of its six IPA instructions. The PC's Renut (Vulkan, RTX 3060) with the
+centroid shaders: the presents menu complete, rows 368-374 uniform at x = 470, 520, 760 and 820 (the line gone). On
+the console (the user, rc10b): the presents menu without the line, three runs out of four. The first visit of one run
+drew nothing there for 40 s (the game at 60 fps, the circle's shader drawn every frame: the user saw the game locked);
+the same screen fine on the next start, and twice more after the user deleted everything and copied the files again.
+Not reproduced in Ryujinx (no pipeline list: the first visit's generic variants and background reads, the same
+counters as the console's log); the user's call: not followed further.
+
+**`BANJO_CENTROID`** (XenosRecomp, on unless `0`; the user: "please leave centroid on by default").
+`tools/switch_shaders.ps1 -NoCentroid` builds rc9's centre-sampled set into `out/deko3d_shaders_nocentroid` and
+`app/out/renut_switch_nocentroid` (a GLSL package the runtime loads from `/switch/katamari_nx/deko3d_glsl.bin`).
+With it off the package and the SPIR-V cache are rc9's byte for byte; on, rc10b's.

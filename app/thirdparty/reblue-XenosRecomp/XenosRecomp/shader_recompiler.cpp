@@ -2135,7 +2135,16 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
         // input was at the centre: where an edge runs through pixel centres the pixel was shaded on the edge itself,
         // e.g. the line across the presents menu's big circle (its two halves meet there with the texture coordinate
         // on the border of the circle's image).
+        // katamari-nx (2026-11-02): BANJO_CENTROID=0 leaves it out (every input at the centre: rc9's shaders). Checked
+        // on the PC's Renut (Vulkan, the presents menu without the line) and on the console (rc10b: the presents menu
+        // without the line; one first visit drew nothing, not seen again in three more). Ryujinx does not sample at
+        // the centroid (its captures keep the line), so it cannot check this.
         bool centroidInput[16][16]{};
+        static const bool centroidOn = [] {
+            const char* value = std::getenv("BANJO_CENTROID");
+            return value == nullptr || value[0] != '0';
+        }();
+        if (centroidOn)
         {
             const auto pixelShader = reinterpret_cast<const PixelShader*>(shader);
             const uint32_t sampleControl = (shader->fieldC >> 2) & 3;
