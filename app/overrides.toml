@@ -1,6 +1,20 @@
 # katamari-nx: function boundaries found by the analysis tools (tools/pointer_fixpoint.py, tools/runtime_gap_resolver.py)
 # and jump tables (tools/switch_check.py), each with its evidence. Hand-written entries with their reasons are in
 # config/renut_funcs.toml.
+
+# katamari-nx (2026-11-01, the user's rc6 console run: entering the supermarket DLC level stopped on brk #1000 in
+# sub_822AC470): bctr through a table of function pointers in data, which the generator read as a jump table and
+# made a switch on a register that does not hold the index; every call fell to the switch's trap. Listed here they
+# are indirect calls (the scanner's detect_jump_table skips them since this date; the key was loaded and unused).
+#   0x822AC494  sub_822AC470: lwz/lhz/extsh the index from the object at *(0x82B0B568) + 968; rlwinm r11,r11,2;
+#               lwzx r11,r11,r10 (r10 = 0x82A3AE08: 0x822AC4F8, 0x822AC5A8); mtctr; bctr. The load rewrites the
+#               index register; the generator switched on r10 (the table base). Its five siblings (0x822ABCEC,
+#               0x822ABF0C, 0x822AC1C4, 0x822AC75C, 0x822AC9B4) were already indirect calls.
+#   0x822DF3C4  sub_822DF3B0: rlwinm r10,r3,2,27,29 (index 0-7 times 4); lwzx r11,r10,r11 (0x82A3B848: eight
+#               handlers 0x822DF470 ... 0x822E0A60); the generator made a one-case switch on r11 (the loaded
+#               pointer). Found by tools/switch_check.py after its 2026-11-01 fixes.
+indirect_calls = [0x822AC494, 0x822DF3C4]
+
 [functions]
 
 # Code pointers into unclaimed gaps, stored in data (vtables, callback tables) or built in code (lis/addi:

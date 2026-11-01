@@ -559,3 +559,28 @@ false`): the same channels sound at the same seconds, so the clock change does n
 by mistake: their log says "Internal heights: handheld 1280x720, docked 1280x720"); `configs/renut_720_docked.toml`
 replaces `renut_1080_docked.toml`. No four-core NPDM: `banjo_forwarder_program_id = ""`; rc5 wrote one for the
 user's forwarder, which they delete to be back on three cores.
+
+## rc7 (2026-11-01): the supermarket DLC crash, a scan for its kind
+
+The user's rc6 run: entering the supermarket DLC level stopped the game, and nothing in the supermarket was drawn.
+Both are written up in `docs/codegen-crash-fixes.md` (with every earlier codegen crash); in short:
+
+- **Crash:** `brk #1000` in sub_822AC470, a call through a table of function pointers whose index register the load
+  overwrites; the generator had made a two-case switch on the table's base register, so every call trapped. The
+  generator's `indirect_calls` list (loaded, never used) now reaches both of its jump-table detectors;
+  `app/overrides.toml` lists 0x822AC494 and 0x822DF3C4 (sub_822DF3B0, the same bug with a masked index, not hit yet).
+- **Scan:** `tools/switch_check.py` had been blind since the register diet (it read 157 of 770 switches) and is fixed
+  (local-register switches, loop-exit labels, indirect calls in their save blocks, rewritten index registers, masked
+  indices, tables of function starts in data). Over all 1,219 `bctr` of the image only those two were wrong.
+- **Nothing drawn:** 24 shaders the game builds from its compressed data were not in the shader package; the console
+  has no translator, so their draws were skipped. They are saved in `sdmc:/switch/katamari_nx/shader_capture/` on the
+  user's card (their folder is `katamari_nx`); the data files cannot be scanned for them (2 containers in `d02.dat`,
+  the rest compressed). The next package adds them once the user sends the folder.
+- **Generated-code drift:** a fresh codegen and post-codegen today differ from rc6's tree in four functions besides the
+  fix and its two inlining callers (sub_824EB898, sub_82535930, sub_8258EB68, sub_829626B8; condition-bit logic lowered
+  differently). The same pipeline without the two `indirect_calls` entries gives the same four, today's three runs agree
+  with each other, and no generator source, post-codegen tool or config changed since rc4; which input made rc6's tree
+  is not known. The guarded gameplay run of the rc7 build (4.54 M calls compared, 0 differences, no FATAL) found
+  nothing wrong.
+- Generator changes need `rexglue codegen --ignore-stamp`: its stamp covers the config and the image, not the
+  generator.
