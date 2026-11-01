@@ -594,7 +594,7 @@ if(REXGLUE_PLATFORM_SWITCH)
                      "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch_defaults.toml"
                      "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch.toml")
     endif()
-    set(RENUT_ICON"${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
+    set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
     set(RENUT_ICON_ARG)
     if(EXISTS "${RENUT_ICON}")
         set(RENUT_ICON_ARG ICON "${RENUT_ICON}")
