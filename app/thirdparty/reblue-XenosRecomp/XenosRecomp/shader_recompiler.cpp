@@ -2124,10 +2124,43 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
     {
         out += "\tin float4 iPos : SV_Position,\n";
 
+#ifdef RENUT_RECOMP
+        // katamari-nx (2026-11-01): which inputs the GPU samples at the centroid of the covered samples under MSAA.
+        // The shader's header holds the two registers the D3D runtime loads with it (both checked against the
+        // emulated GPU's register log, 14 pixel shaders): fieldC is its SQ_CONTEXT_MISC (sc_sample_cntl in bits 2-3),
+        // field18 its SQ_INTERPOLATOR_CNTL (sampling_pattern in the high half, 1 = the centre). The rule is Xenia's
+        // GetInterpolatorSamplingPattern: sc_sample_cntl 0 every interpolator at centroids (most of Beautiful
+        // Katamari's shaders), 1 every one at centres, 2 the pattern's choice per interpolator register. Without a
+        // multisampled target a pixel's centroid is its centre, so this changes only MSAA draws. Before it every
+        // input was at the centre: where an edge runs through pixel centres the pixel was shaded on the edge itself,
+        // e.g. the line across the presents menu's big circle (its two halves meet there with the texture coordinate
+        // on the border of the circle's image).
+        bool centroidInput[16][16]{};
+        {
+            const auto pixelShader = reinterpret_cast<const PixelShader*>(shader);
+            const uint32_t sampleControl = (shader->fieldC >> 2) & 3;
+            const uint32_t pattern = pixelShader->field18 >> 16;
+            const uint32_t count = (shader->interpolatorInfo >> 5) & 0x1F;
+            for (uint32_t i = 0; i < count; i++)
+            {
+                union
+                {
+                    Interpolator interpolator;
+                    uint32_t value;
+                };
+                value = pixelShader->interpolators[i];
+                const bool centroid = sampleControl == 0 || (sampleControl == 2 && !((pattern >> interpolator.reg) & 1));
+                centroidInput[uint32_t(interpolator.usage) & 15][uint32_t(interpolator.usageIndex) & 15] = centroid;
+            }
+        }
+#endif
+
         for (auto& [usage, usageIndex] : INTERPOLATORS)
         {
 #ifdef REBLUE_RECOMP
             const char* interpolation = (usage == DeclUsage::Color) ? "centroid " : "";
+#elif defined(RENUT_RECOMP)
+            const char* interpolation = centroidInput[uint32_t(usage) & 15][usageIndex & 15] ? "centroid " : "";
 #else
             const char* interpolation = "";
 #endif

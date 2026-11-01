@@ -80,7 +80,9 @@ VERIFY = {k: 'true' for k in (
 # The CPU natives' guard (banjo_hot_guest.cpp): each thread's first 4000 calls of every native compared with the
 # generated original, then one in 64 ("[hot] DIFFERENCE" lines; the 10-s "[hot]" report counts the checks).
 VERIFY.update({'banjo_hot_guard_calls': '4000', 'banjo_hot_guard_period': '64',
-               'katamari_hand_sphere_box': 'true'})
+               'katamari_hand_sphere_box': 'true',
+               # rc10: sub_82277E70's native checks itself (no guard can repeat it): every call here.
+               'katamari_hand_transform_chain_verify': 'true'})
 CONFIGS = {
     'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
                                   'must count 0 differences)'),

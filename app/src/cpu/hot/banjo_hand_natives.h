@@ -81,7 +81,10 @@ enum : uint32_t {
   kTransform = 18,
   kIntegrate = 19,
   kSine = 20,
-  kNatives = 21
+  kXformChain = 21,  // katamari-nx (2026-11-01, rc10): sub_82277E70
+  kBoxTest = 22,     // sub_82265C08
+  kXlateMul = 23,    // sub_8223A970
+  kNatives = 24
 };
 extern uint8_t g_state[kNatives];
 uint8_t Init(uint32_t which);
@@ -1765,5 +1768,1033 @@ template <class S>
 }
 
 }  // namespace n_824E97F0
+
+}  // namespace banjo::hand
+
+// katamari-nx (2026-11-01, rc10): the transform chain's check key (banjo_hot_guest.cpp).
+#include <bit>
+#include <string>
+#include <type_traits>
+#include <rex/cvar.h>
+#include "me/me_verify.h"  // the "[verify]" line's counts
+REXCVAR_DECLARE(bool, katamari_hand_transform_chain_verify);
+REXCVAR_DECLARE(bool, banjo_cpu_verify);  // banjo_enhancements.cpp: every CPU enhancement checks every use
+
+namespace banjo::hand {
+
+// ---------------------------------------------------------------------------------------------------------------------
+// katamari-nx (2026-11-01, the user's request after the rc9 console run: "optimise these two sub_82277E70 and
+// sub_822683D0 by hand"). docs/katamari-notes.md, "rc10".
+
+// sub_82277E70 - an object's world transform (25 % of the main thread in the rc9 run's slowest stage, the M71_KDXSE
+// one, where the main thread set the frame rate). After two real calls (sub_822889D8, sub_82275268: both make
+// indirect calls, so the guard cannot repeat this function and has never compared it) it builds up to two 4x4
+// matrices from up to five others, through the natives above: a copy of a constant matrix, three or four in-place
+// multiplies, a 3x3 rotation of one or two vectors, two "translate then multiply" calls (sub_8223A970: copy, translation
+// matrix, multiply) and four copies. Each of those natives loads its matrices from guest memory (byte-swapped), writes
+// the result back (byte-swapped, cards marked), and the multiply writes all fourteen vector registers it used to the
+// context: on the A57 the next native's loads of what the last one just stored stall (store forwarding fails from
+// word stores to a 16-byte load), and the context stores fill the store buffer. Here the same operations run on
+// registers: every matrix is loaded once, each product is the multiply native's own sixteen dot products in its own
+// order (MatMulRegs below, the same statements as katamari::MatMul), the vector rotation and the adds are the rotation
+// native's and the generated code's formulas, each in the flush mode the original runs it in (the products with the
+// mode on, the rotation and the adds with it off), and every location the original writes ends with the bytes the
+// original leaves there: the matrices, the vectors, the stack temporaries (also the copies' and the translate calls'
+// frames: zeros for the saved non-volatile registers, the link register, the back chains) and the cards. Registers:
+// what the copy of the original writes back (r1, f11-f13) and what its natives leave in the context (r3-r6, r8-r10,
+// v0-v13 of the last multiply), with the flush mode the last multiply sets.
+//
+// Not covered (the reference path below runs instead: the existing natives in the original's order, each falling
+// back to its generated original as in the copy): a matrix or vector the original copies through lfs / stfs that holds
+// a signalling NaN (those pairs quiet it), an object or stack range that is not plain memory, inputs from the other
+// objects (the parent at +1788, the one at +1728) that overlap what is written, and any of the four natives switched
+// off. Before the two real calls only the stack range is tested (nothing has run then: declining runs the copy).
+//
+// The check (no guard can compare this function): katamari_hand_transform_chain_verify (on in configs/
+// renut_verify.toml) runs both the register path and the reference path on every call from the same state after the
+// two real calls and compares every byte either writes and every register; without it, the first 2000 calls of the
+// run and then one in 256. A difference logs "[hot] DIFFERENCE sub_82277E70", keeps the reference path's result and
+// switches the register path off for the rest of the run.
+namespace n_82277E70 {
+
+REX_EXTERN(sub_822889D8);
+REX_EXTERN(sub_82275268);
+REX_EXTERN(sub_82759C98);
+REX_EXTERN(sub_827598C0);
+REX_EXTERN(sub_82759D20);
+REX_EXTERN(sub_8275A828);
+
+using V = simde__m128i;
+struct M4 {
+  V r[4];
+};
+
+constexpr uint32_t kIdentityVa = 0x82AEC618u;  // the constant the original copies first (lis r11,-32081; addi -14824)
+constexpr uint32_t kOneVa = 0x82000B38u;       // the translation native's constants (n_82759D20)
+constexpr uint32_t kZeroVa = 0x82000B34u;      // and the zero the original stores at 208..216 (REX_RO_CFG of 2868)
+
+[[gnu::always_inline]] inline uint32_t L32(uint8_t* base, uint32_t va) { return katamari::LoadW(::banjo::hot::Raw(base, va)); }
+[[gnu::always_inline]] inline uint32_t L8(uint8_t* base, uint32_t va) { return *::banjo::hot::Raw(base, va); }
+[[gnu::always_inline]] inline M4 LoadM(uint8_t* base, uint32_t va) {
+  const uint8_t* p = ::banjo::hot::Raw(base, va);
+  return {{katamari::LoadV(p), katamari::LoadV(p + 16), katamari::LoadV(p + 32), katamari::LoadV(p + 48)}};
+}
+[[gnu::always_inline]] inline void StoreM(uint8_t* base, uint32_t va, const M4& m) {
+  uint8_t* p = ::banjo::hot::Raw(base, va);
+  for (int k = 0; k < 4; ++k) katamari::StoreV(p + 16 * k, m.r[k]);
+}
+// Word k (the guest's order) of row r: lane 3 - k of the register layout.
+[[gnu::always_inline]] inline uint32_t Word(const M4& m, int r, int k) {
+  alignas(16) uint32_t t[4];
+  simde_mm_store_si128(reinterpret_cast<V*>(t), m.r[r]);
+  return t[3 - k];
+}
+[[gnu::always_inline]] inline V Row(uint32_t w0, uint32_t w1, uint32_t w2, uint32_t w3) {
+  return simde_mm_set_epi32(int32_t(w0), int32_t(w1), int32_t(w2), int32_t(w3));
+}
+[[gnu::always_inline]] inline bool Snan(const M4& m) {
+  uint32_t any = 0;
+  for (int r = 0; r < 4; ++r)
+    for (int k = 0; k < 4; ++k) any |= uint32_t(katamari::Snan(Word(m, r, k)));
+  return any != 0;
+}
+
+// katamari::MatMul's statements on registers: out = a x b (a the first operand: the rows at r3 for sub_827598C0),
+// with the fourteen vector registers it leaves when regs is given. The flush mode must be on.
+[[gnu::always_inline]] inline M4 MatMulRegs(const M4& a, const M4& b, V* regs) {
+  using katamari::Dp;
+  V v12 = a.r[0], v11 = a.r[1], v10 = a.r[2], v9 = a.r[3];
+  V v0 = b.r[0], v13 = b.r[1];
+  V v8 = simde_mm_unpackhi_epi32(v10, v12);
+  V v6 = simde_mm_unpacklo_epi32(v10, v12);
+  V v7 = simde_mm_unpackhi_epi32(v9, v11);
+  V v5 = simde_mm_unpacklo_epi32(v9, v11);
+  v12 = b.r[2];
+  v11 = b.r[3];
+  v10 = simde_mm_unpackhi_epi32(v7, v8);
+  v9 = simde_mm_unpackhi_epi32(v5, v6);
+  v8 = simde_mm_unpacklo_epi32(v7, v8);
+  v7 = simde_mm_unpacklo_epi32(v5, v6);
+  v6 = Dp(v0, v10);
+  V v3 = Dp(v0, v9);
+  V v1 = Dp(v0, v8);
+  v0 = Dp(v0, v7);
+  v5 = Dp(v13, v10);
+  V v2 = Dp(v13, v9);
+  const V v31 = Dp(v13, v8);
+  v13 = Dp(v13, v7);
+  V v4 = Dp(v12, v10);
+  const V v30 = Dp(v12, v7);
+  const V v29 = Dp(v12, v8);
+  v12 = Dp(v12, v9);
+  v7 = Dp(v11, v7);
+  v8 = Dp(v11, v8);
+  v9 = Dp(v11, v9);
+  v11 = Dp(v11, v10);
+  v10 = simde_mm_unpackhi_epi32(v3, v6);
+  v0 = simde_mm_unpackhi_epi32(v0, v1);
+  v6 = simde_mm_unpackhi_epi32(v2, v5);
+  v0 = simde_mm_unpackhi_epi32(v0, v10);
+  v13 = simde_mm_unpackhi_epi32(v13, v31);
+  v5 = simde_mm_unpackhi_epi32(v30, v29);
+  v12 = simde_mm_unpackhi_epi32(v12, v4);
+  v13 = simde_mm_unpackhi_epi32(v13, v6);
+  v10 = simde_mm_unpackhi_epi32(v7, v8);
+  v12 = simde_mm_unpackhi_epi32(v5, v12);
+  v11 = simde_mm_unpackhi_epi32(v9, v11);
+  v11 = simde_mm_unpackhi_epi32(v10, v11);
+  if (regs) {
+    regs[0] = v0;
+    regs[1] = v1;
+    regs[2] = v2;
+    regs[3] = v3;
+    regs[4] = v4;
+    regs[5] = v5;
+    regs[6] = v6;
+    regs[7] = v7;
+    regs[8] = v8;
+    regs[9] = v9;
+    regs[10] = v10;
+    regs[11] = v11;
+    regs[12] = v12;
+    regs[13] = v13;
+  }
+  return {{v0, v13, v12, v11}};
+}
+
+// n_82759D20's matrix: the identity with the last row (x, y, z, 1), the words as they are.
+[[gnu::always_inline]] inline M4 Translation(uint32_t one, uint32_t zero, const uint32_t v[3]) {
+  return {{Row(one, zero, zero, zero), Row(zero, one, zero, zero), Row(zero, zero, one, zero), Row(v[0], v[1], v[2], one)}};
+}
+
+// n_8275A828 for one vector (its formulas; the flush mode must be off): the 3x3 part of m turns (x, y, z).
+[[gnu::always_inline]] inline void Rotate(const M4& m, const uint32_t in[3], uint32_t out[3]) {
+  using ::rex::ppc::SingleToDoublePure;
+  using katamari::Round1;
+  double m0 = SingleToDoublePure(Word(m, 0, 0)), m4 = SingleToDoublePure(Word(m, 0, 1)),
+         m8 = SingleToDoublePure(Word(m, 0, 2)), m16 = SingleToDoublePure(Word(m, 1, 0)),
+         m20 = SingleToDoublePure(Word(m, 1, 1)), m24 = SingleToDoublePure(Word(m, 1, 2)),
+         m32 = SingleToDoublePure(Word(m, 2, 0)), m36 = SingleToDoublePure(Word(m, 2, 1)),
+         m40 = SingleToDoublePure(Word(m, 2, 2));
+  double x = SingleToDoublePure(in[0]), y = SingleToDoublePure(in[1]), z = SingleToDoublePure(in[2]);
+  katamari::Pin(m0); katamari::Pin(m4); katamari::Pin(m8); katamari::Pin(m16); katamari::Pin(m20);
+  katamari::Pin(m24); katamari::Pin(m32); katamari::Pin(m36); katamari::Pin(m40);
+  katamari::Pin(x); katamari::Pin(y); katamari::Pin(z);
+  double ox = Round1(std::fma(m0, x, Round1(std::fma(m32, z, REX_FMULS(m16, y)))));
+  double oy = Round1(std::fma(x, m4, Round1(std::fma(m36, z, REX_FMULS(m20, y)))));
+  double oz = Round1(std::fma(y, m24, Round1(std::fma(m8, x, REX_FMULS(z, m40)))));
+  katamari::Pin(ox); katamari::Pin(oy); katamari::Pin(oz);
+  out[0] = katamari::FloatBits(ox);
+  out[1] = katamari::FloatBits(oy);
+  out[2] = katamari::FloatBits(oz);
+}
+
+// The flush-mode switches, with every value the following arithmetic reads tied to the point after the switch.
+template <class... T>
+[[gnu::always_inline]] inline void ModeOn(PPCContext& ctx, T&... xs) {
+  ctx.fpscr.enableFlushMode();
+  katamari::Fence();
+  (katamari::Pin(xs), ...);
+}
+template <class... T>
+[[gnu::always_inline]] inline void ModeOff(PPCContext& ctx, T&... xs) {
+  ctx.fpscr.disableFlushMode();
+  katamari::Fence();
+  (katamari::Pin(xs), ...);
+}
+[[gnu::always_inline]] inline void PinM(M4& m) {
+  for (auto& r : m.r) katamari::Pin(r);
+}
+
+// The stack and the call state after the two real calls, which both paths start from.
+struct Entry {
+  PPCRegister r31;     // the object (r3 on entry)
+  PPCRegister r1;      // the frame (r1 - 304), as the calls left ctx.r1
+  PPCRegister f11, f12, f13;
+  uint64_t lr;
+};
+
+// sub_8223A970's frame writes (its copy with the store-elide options off, as both builds compile it): the link
+// register's low word at r1 - 8, its two non-volatile saves (zero: they are locals of the generated function), the
+// back chain at r1 - 176; then lr = that word again.
+[[gnu::always_inline]] inline void TranslateFrame(PPCContext& ctx, uint8_t* base, uint32_t r1) {
+  const uint32_t lr = uint32_t(ctx.lr);
+  katamari::StoreW(::banjo::hot::Raw(base, r1 - 8), lr);
+  std::memset(::banjo::hot::Raw(base, r1 - 24), 0, 16);
+  katamari::StoreW(::banjo::hot::Raw(base, r1 - 176), r1);
+  ctx.lr = uint64_t(lr);
+}
+
+// THE REFERENCE PATH: the copy's statements after the two real calls (app/generated/hot/n_82277E70.h), with the
+// natives it calls and, where one declines, the generated original through its hook.
+inline void Reference(PPCContext& ctx, uint8_t* base, const Entry& e) {
+  ::banjo::hot::Fast s;
+  const PPCRegister r31 = e.r31;
+  PPCRegister l_r1 = e.r1, l_r3, l_r4, l_r5, l_r6;
+  PPCRegister l_f11 = e.f11, l_f12 = e.f12, l_f13 = e.f13;
+  l_r5 = ctx.r5;
+  l_r6 = ctx.r6;
+  PPCRegister r26{}, r27{}, r28{}, r29{}, r30{}, r11{};
+  double f0, f29, f30, f31;
+  auto copy = [&](PPCRegister d, PPCRegister src) {
+    ctx.r3 = d;
+    ctx.r4 = src;
+    if (!::banjo::hand::n_82759C98::Native(ctx, base, s)) sub_82759C98(ctx, base);
+  };
+  auto mul = [&](PPCRegister d, PPCRegister b) {
+    ctx.r3 = d;
+    ctx.r4 = b;
+    if (!::banjo::hand::n_827598C0::Native(ctx, base, s)) sub_827598C0(ctx, base);
+  };
+  auto rotate = [&](PPCRegister m, PPCRegister v) {
+    ctx.r3 = m;
+    ctx.r4 = v;
+    ctx.r5 = v;
+    ctx.r6.s64 = 1;
+    if (!::banjo::hand::n_8275A828::Native(ctx, base, s)) sub_8275A828(ctx, base);
+    l_f11 = ctx.f11;
+    l_f12 = ctx.f12;
+    l_f13 = ctx.f13;
+  };
+  auto translate = [&](PPCRegister m, PPCRegister v) {  // sub_8223A970, its copy inlined
+    const uint32_t f = l_r1.u32 - 176;
+    TranslateFrame(ctx, base, l_r1.u32);
+    PPCRegister tmp;
+    PPCRegister fr = l_r1;  // l_r1.u32 = ea, then l_r1.s64 + 80: the copy's own arithmetic
+    fr.u32 = f;
+    tmp.s64 = fr.s64 + 80;
+    copy(tmp, m);
+    ctx.r3 = m;
+    ctx.r4 = v;
+    if (!::banjo::hand::n_82759D20::Native(ctx, base, s)) sub_82759D20(ctx, base);
+    mul(m, tmp);
+    l_f13 = ctx.f13;
+  };
+  auto ld32 = [&](uint32_t va) { return L32(base, va); };
+  auto st32 = [&](uint32_t va, uint32_t w) { katamari::StoreW(::banjo::hot::Raw(base, va), w); };
+  auto stc = [&](uint32_t va, uint32_t w) {  // BANJO_HOT_STORE_D_U32_C
+    st32(va, w);
+    ::banjo::hot::Card(base, va, 4);
+  };
+  auto fbits = [](double d) {
+    const float f = float(d);
+    return std::bit_cast<uint32_t>(f);
+  };
+  auto ldf = [&](uint32_t va) { return double(std::bit_cast<float>(ld32(va))); };  // double(REX_LOAD_D_F32)
+
+  r11.s64 = -2102460416;
+  r30.s64 = r31.s64 + 320;
+  l_r4.s64 = r11.s64 + -14824;
+  copy(r30, l_r4);
+  r11.u64 = ld32(r31.u32 + 1728);
+  const bool x = r11.u32 != 0 && L8(base, r31.u32 + 1678) != 0;
+  if (x) {
+    st32(l_r1.u32 + 96, ::rex::ppc::QuietSingleBits(ld32(r31.u32 + 1660)));
+    l_r3.s64 = l_r1.s64 + 160;
+    st32(l_r1.u32 + 100, ::rex::ppc::QuietSingleBits(ld32(r31.u32 + 1664)));
+    st32(l_r1.u32 + 104, ::rex::ppc::QuietSingleBits(ld32(r31.u32 + 1668)));
+    l_r4.s64 = r11.s64 + 1596;
+    copy(l_r3, l_r4);
+    ctx.fpscr.disableFlushMode();
+    katamari::Fence();
+    f31 = ldf(l_r1.u32 + 208);
+    f30 = ldf(l_r1.u32 + 212);
+    f29 = ldf(l_r1.u32 + 216);
+    const uint32_t zero = ::rex::ppc::QuietSingleBits(ld32(kZeroVa));
+    st32(l_r1.u32 + 208, zero);
+    st32(l_r1.u32 + 212, zero);
+    st32(l_r1.u32 + 216, zero);
+    l_r4.s64 = l_r1.s64 + 160;
+    ctx.r10.u64 = 1;  // l_r10 = r29 & 0xFF, passed to the first multiply (which writes 32 over it)
+    mul(r30, l_r4);
+    r27.s64 = r31.s64 + 256;
+    mul(r30, r27);
+    r26.s64 = r31.s64 + 192;
+    mul(r30, r26);
+    PPCRegister s96;
+    s96.s64 = l_r1.s64 + 96;
+    PPCRegister s160;
+    s160.s64 = l_r1.s64 + 160;
+    rotate(s160, s96);
+    l_r5 = s96;
+    l_r6.s64 = 1;
+    r28.u64 = ld32(r31.u32 + 1788);
+    ctx.fpscr.disableFlushMode();
+    katamari::Fence();
+    f0 = ldf(l_r1.u32 + 96);
+    l_f13.f64 = ldf(l_r1.u32 + 100);
+    l_f12.f64 = ldf(l_r1.u32 + 104);
+    f0 = double(float(f31 + f0));
+    l_f13.f64 = double(float(f30 + l_f13.f64));
+    l_f12.f64 = double(float(f29 + l_f12.f64));
+    if (r28.u32 != 0) {
+      stc(r31.u32 + 1504, fbits(f0));
+      st32(l_r1.u32 + 80, fbits(f0));
+      st32(l_r1.u32 + 84, fbits(l_f13.f64));
+      stc(r31.u32 + 1508, fbits(l_f13.f64));
+      stc(r31.u32 + 1512, fbits(l_f12.f64));
+      st32(l_r1.u32 + 88, fbits(l_f12.f64));
+      st32(l_r1.u32 + 128, ::rex::ppc::QuietSingleBits(ld32(r28.u32 + 100)));
+      st32(l_r1.u32 + 132, ::rex::ppc::QuietSingleBits(ld32(r28.u32 + 104)));
+      st32(l_r1.u32 + 136, ::rex::ppc::QuietSingleBits(ld32(r28.u32 + 108)));
+      if (L8(base, r28.u32 + 150) != 1) {
+        PPCRegister s128;
+        s128.s64 = l_r1.s64 + 128;
+        ctx.f12 = l_f12;
+        ctx.f13 = l_f13;
+        rotate(r30, s128);
+        l_r5 = s128;
+      }
+      ctx.fpscr.disableFlushMode();
+      katamari::Fence();
+      for (uint32_t k = 0; k < 3; ++k) {
+        l_f13.f64 = ldf(l_r1.u32 + 80 + 4 * k);
+        f0 = ldf(l_r1.u32 + 128 + 4 * k);
+        f0 = REX_FADDS(f0, l_f13.f64);
+        st32(l_r1.u32 + 80 + 4 * k, fbits(f0));
+      }
+      mul(r30, r28);
+      PPCRegister s80;
+      s80.s64 = l_r1.s64 + 80;
+      ctx.f13 = l_f13;
+      translate(r30, s80);
+      r29.s64 = r31.s64 + 1596;
+      copy(r29, s160);
+      mul(r29, r27);
+      mul(r29, r26);
+      mul(r29, r28);
+      translate(r29, s80);
+    } else {
+      r28.s64 = r31.s64 + 1504;
+      stc(r28.u32 + 0, fbits(f0));
+      stc(r28.u32 + 4, fbits(l_f13.f64));
+      stc(r28.u32 + 8, fbits(l_f12.f64));
+      ctx.f13 = l_f13;
+      translate(r30, r28);
+      r29.s64 = r31.s64 + 1596;
+      copy(r29, s160);
+      mul(r29, r27);
+      mul(r29, r26);
+      const uint32_t w60 = ld32(r29.u32 + 60);
+      const uint32_t w0 = ld32(r28.u32), w1 = ld32(r28.u32 + 4), w2 = ld32(r28.u32 + 8);
+      l_f13.f64 = ::rex::ppc::SingleToDoublePure(w0);
+      l_f12.f64 = ::rex::ppc::SingleToDoublePure(w1);
+      l_f11.f64 = ::rex::ppc::SingleToDoublePure(w2);
+      stc(r29.u32 + 48, ::rex::ppc::QuietSingleBits(w0));
+      stc(r29.u32 + 52, ::rex::ppc::QuietSingleBits(w1));
+      stc(r29.u32 + 56, ::rex::ppc::QuietSingleBits(w2));
+      stc(r29.u32 + 60, ::rex::ppc::QuietSingleBits(w60));
+    }
+  } else {
+    r26.s64 = r31.s64 + 256;
+    ctx.r10.u64 = 0;  // l_r10 = r29 & 0xFF = 0, passed to the first multiply (which writes 32 over it)
+    mul(r30, r26);
+    r29.u64 = ld32(r31.u32 + 1788);
+    if (r29.u32 != 0) {
+      r27.s64 = r31.s64 + 192;
+      mul(r30, r27);
+      for (uint32_t k = 0; k < 3; ++k) {
+        st32(l_r1.u32 + 112 + 4 * k, ::rex::ppc::QuietSingleBits(ld32(r31.u32 + 1504 + 4 * k)));
+      }
+      for (uint32_t k = 0; k < 3; ++k) {
+        st32(l_r1.u32 + 144 + 4 * k, ::rex::ppc::QuietSingleBits(ld32(r29.u32 + 100 + 4 * k)));
+      }
+      if (L8(base, r29.u32 + 150) != 1) {
+        PPCRegister s144;
+        s144.s64 = l_r1.s64 + 144;
+        rotate(r30, s144);
+      }
+      ctx.fpscr.disableFlushMode();
+      katamari::Fence();
+      for (uint32_t k = 0; k < 3; ++k) {
+        l_f13.f64 = ldf(l_r1.u32 + 112 + 4 * k);
+        f0 = ldf(l_r1.u32 + 144 + 4 * k);
+        f0 = REX_FADDS(f0, l_f13.f64);
+        st32(l_r1.u32 + 112 + 4 * k, fbits(f0));
+      }
+      mul(r30, r29);
+      PPCRegister s112;
+      s112.s64 = l_r1.s64 + 112;
+      ctx.f13 = l_f13;
+      translate(r30, s112);
+      r28.s64 = r31.s64 + 1596;
+      copy(r28, r26);
+      mul(r28, r27);
+      mul(r28, r29);
+      translate(r28, s112);
+    } else {
+      r28.s64 = r31.s64 + 192;
+      mul(r30, r28);
+      r27.s64 = r31.s64 + 1504;
+      translate(r30, r27);
+      r29.s64 = r31.s64 + 1596;
+      copy(r29, r26);
+      mul(r29, r28);
+      translate(r29, r27);
+    }
+  }
+  PPCRegister o64;
+  o64.s64 = r31.s64 + 64;
+  copy(r31, r30);
+  copy(o64, r30);
+  l_r1.s64 = l_r1.s64 + 304;
+  ctx.f11 = l_f11;
+  ctx.f12 = l_f12;
+  ctx.f13 = l_f13;
+  ctx.r1 = l_r1;
+}
+
+// THE REGISTER PATH. false = not covered and nothing written (the reference path runs instead). The four paths are
+// the copy's: x = the object at +1728 is set and byte 1678 is not 0 (paths 1 and 2), b = the parent at +1788 (paths 1
+// and 3 have one).
+inline bool Registers(PPCContext& ctx, uint8_t* base, const Entry& e) {
+  using katamari::KOn;
+  using katamari::Overlap;
+  using katamari::Pin;
+  using katamari::PinW;
+  using ::rex::ppc::QuietSingleBits;
+  using ::rex::ppc::SingleToDoublePure;
+  if (!KOn(kMatCopy) || !KOn(kMatMul) || !KOn(kMatTranslation) || !KOn(kRotate)) return false;
+  const uint32_t O = e.r31.u32, R = e.r1.u32, F = R - 176;
+  if (!detail::Straight(O, 1792) || !detail::Straight(F, 400)) return false;
+  // What the original writes: four of the object's matrices, its three floats at 1504 and the stack [F, R + 224).
+  auto written = [&](uint32_t va, uint32_t n) {
+    return Overlap(va, n, O, 128) || Overlap(va, n, O + 320, 64) || Overlap(va, n, O + 1504, 12) ||
+           Overlap(va, n, O + 1596, 64) || Overlap(va, n, F, 400);
+  };
+  const uint32_t a = L32(base, O + 1728);
+  const bool x = a != 0 && L8(base, O + 1678) != 0;
+  const uint32_t b = L32(base, O + 1788);
+  if (x && (!detail::Straight(a + 1596, 64) || written(a + 1596, 64))) return false;
+  if (b != 0 && (!detail::Straight(b, 152) || written(b, 152))) return false;
+  const uint32_t one = L32(base, kOneVa), zero = L32(base, kZeroVa);
+  if (katamari::Snan(one) || katamari::Snan(zero)) return false;
+  M4 c = LoadM(base, kIdentityVa);
+  if (Snan(c)) return false;
+  M4 m256 = LoadM(base, O + 256), m192 = LoadM(base, O + 192), bm{}, s{};
+  if (b != 0) bm = LoadM(base, b);
+  uint32_t t0 = 0, t1 = 0, t2 = 0, v96[3] = {}, o96[3] = {};
+  uint32_t first[3] = {};  // path x: the three sums the original writes to o + 1504 (and to r1 + 80 in path 1)
+  uint32_t vec[3] = {};    // the translate calls' vector: r1 + 80 (path 1), o + 1504 (2, 4), r1 + 112 (3)
+  uint32_t aux[3] = {};    // r1 + 128 (path 1), r1 + 144 (path 3): the parent's vector, turned or not
+  bool turned = false;
+  if (x) {
+    s = LoadM(base, a + 1596);
+    if (Snan(s)) return false;
+    t0 = Word(s, 3, 0);
+    t1 = Word(s, 3, 1);
+    t2 = Word(s, 3, 2);
+    const uint32_t z = QuietSingleBits(zero);
+    s.r[3] = Row(z, z, z, Word(s, 3, 3));
+    for (uint32_t k = 0; k < 3; ++k) v96[k] = QuietSingleBits(L32(base, O + 1660 + 4 * k));
+  } else {
+    if (Snan(m256)) return false;  // copied to o + 1596 through lfs / stfs pairs
+    if (b == 0) {
+      for (uint32_t k = 0; k < 3; ++k) vec[k] = L32(base, O + 1504 + 4 * k);
+      if (katamari::Snan(vec[0]) | katamari::Snan(vec[1]) | katamari::Snan(vec[2])) return false;
+    }
+  }
+  if (b != 0)
+    for (uint32_t k = 0; k < 3; ++k) aux[k] = QuietSingleBits(L32(base, b + 100 + 4 * k));
+  const bool turn = b != 0 && L8(base, b + 150) != 1;
+
+  // First half. Path x: three products (mode on), the rotation of the vector at 1660 and the adds (mode off).
+  M4 r30;
+  PPCRegister f12 = e.f12;
+  if (x) {
+    ModeOn(ctx);
+    PinM(c), PinM(s), PinM(m256), PinM(m192);
+    r30 = MatMulRegs(c, s, nullptr);
+    r30 = MatMulRegs(r30, m256, nullptr);
+    r30 = MatMulRegs(r30, m192, nullptr);
+    PinM(r30);
+    ModeOff(ctx);
+    PinM(r30), PinM(s);
+    PinW(t0), PinW(t1), PinW(t2);
+    for (auto& w : aux) PinW(w);
+    Rotate(s, v96, o96);
+    double f0 = double(std::bit_cast<float>(o96[0]));
+    double g13 = double(std::bit_cast<float>(o96[1]));
+    double g12 = double(std::bit_cast<float>(o96[2]));
+    const double f31 = double(std::bit_cast<float>(t0)), f30 = double(std::bit_cast<float>(t1)),
+                 f29 = double(std::bit_cast<float>(t2));
+    f0 = double(float(f31 + f0));
+    g13 = double(float(f30 + g13));
+    g12 = double(float(f29 + g12));
+    Pin(f0), Pin(g13), Pin(g12);
+    first[0] = katamari::FloatBits(f0);
+    first[1] = katamari::FloatBits(g13);
+    first[2] = katamari::FloatBits(g12);
+    if (b != 0) {
+      f12.f64 = g12;
+      if (turn) {
+        Rotate(r30, aux, aux);
+        turned = true;
+      }
+      for (uint32_t k = 0; k < 3; ++k) {
+        PinW(aux[k]);
+        double sum = REX_FADDS(double(std::bit_cast<float>(aux[k])), double(std::bit_cast<float>(first[k])));
+        Pin(sum);
+        vec[k] = katamari::FloatBits(sum);
+      }
+    } else {
+      vec[0] = first[0], vec[1] = first[1], vec[2] = first[2];
+    }
+  } else {
+    // Paths 3 and 4: two products; path 3 then turns the parent's vector and adds o + 1504 (mode off).
+    ModeOn(ctx);
+    PinM(c), PinM(m256), PinM(m192);
+    r30 = MatMulRegs(c, m256, nullptr);
+    r30 = MatMulRegs(r30, m192, nullptr);
+    if (b != 0) {
+      for (uint32_t k = 0; k < 3; ++k) vec[k] = QuietSingleBits(L32(base, O + 1504 + 4 * k));
+      PinM(r30);
+      ModeOff(ctx);
+      PinM(r30);
+      for (auto& w : aux) PinW(w);
+      for (auto& w : vec) PinW(w);
+      if (turn) {
+        Rotate(r30, aux, aux);
+        turned = true;
+      }
+      for (uint32_t k = 0; k < 3; ++k) {
+        PinW(aux[k]);
+        double sum = REX_FADDS(double(std::bit_cast<float>(aux[k])), double(std::bit_cast<float>(vec[k])));
+        Pin(sum);
+        vec[k] = katamari::FloatBits(sum);
+      }
+    }
+  }
+  const uint32_t vec_kept[3] = {vec[0], vec[1], vec[2]};  // r1 + 112 in path 3 holds the sums (vec), see below
+
+  // Second half, mode on: the parent's product, the first translate call (T x the matrix as it was), the second
+  // matrix (o + 1596) and its translate call.
+  ModeOn(ctx);
+  PinM(r30), PinM(bm), PinM(s), PinM(m256), PinM(m192);
+  for (auto& w : vec) PinW(w);
+  const M4 tr = Translation(one, zero, vec);
+  V regs[14];
+  if (b != 0) r30 = MatMulRegs(r30, bm, nullptr);
+  M4 tmp = r30;
+  r30 = MatMulRegs(tr, tmp, nullptr);
+  M4 last;
+  if (x) {
+    last = MatMulRegs(s, m256, nullptr);  // the copy of r1 + 160, then its products
+    if (b != 0) {
+      last = MatMulRegs(last, m192, nullptr);
+      last = MatMulRegs(last, bm, nullptr);
+      tmp = last;
+      last = MatMulRegs(tr, tmp, regs);
+    } else {
+      last = MatMulRegs(last, m192, regs);  // path 2: no second translate call; tmp stays the first call's
+    }
+  } else {
+    last = MatMulRegs(m256, m192, nullptr);  // the copy of o + 256, then its products
+    if (b != 0) last = MatMulRegs(last, bm, nullptr);
+    tmp = last;
+    last = MatMulRegs(tr, tmp, regs);
+  }
+  for (auto& r : regs) Pin(r);
+  PinM(r30), PinM(last), PinM(tmp);
+  if (x && b == 0) {  // path 2: the original rewrites the last row of o + 1596 from o + 1504 and its own w
+    last.r[3] = Row(QuietSingleBits(first[0]), QuietSingleBits(first[1]), QuietSingleBits(first[2]),
+                    QuietSingleBits(Word(last, 3, 3)));
+  }
+
+  // The writes: every location the original writes, with the bytes it leaves there, and its cards.
+  using ::banjo::hot::Card;
+  uint8_t* sp = ::banjo::hot::Raw(base, R);
+  StoreM(base, O + 320, r30);
+  Card(base, O + 320, 64);
+  StoreM(base, O + 1596, last);
+  Card(base, O + 1596, 64);
+  StoreM(base, F + 80, tmp);  // the last translate call's frame: its copy of the matrix, then its saves
+  Card(base, F + 80, 64);
+  TranslateFrame(ctx, base, R);
+  if (x) {
+    for (uint32_t k = 0; k < 3; ++k) katamari::StoreW(sp + 96 + 4 * k, o96[k]);
+    Card(base, R + 96, 12);
+    StoreM(base, R + 160, s);
+    Card(base, R + 160, 64);
+    uint8_t* p = ::banjo::hot::Raw(base, O + 1504);
+    for (uint32_t k = 0; k < 3; ++k) katamari::StoreW(p + 4 * k, first[k]);
+    Card(base, O + 1504, 12);
+    if (b != 0) {
+      for (uint32_t k = 0; k < 3; ++k) katamari::StoreW(sp + 80 + 4 * k, vec_kept[k]);
+      for (uint32_t k = 0; k < 3; ++k) katamari::StoreW(sp + 128 + 4 * k, aux[k]);
+      if (turned) Card(base, R + 128, 12);
+    }
+  } else if (b != 0) {
+    for (uint32_t k = 0; k < 3; ++k) katamari::StoreW(sp + 112 + 4 * k, vec_kept[k]);
+    for (uint32_t k = 0; k < 3; ++k) katamari::StoreW(sp + 144 + 4 * k, aux[k]);
+    if (turned) Card(base, R + 144, 12);
+  }
+  StoreM(base, O, r30);
+  Card(base, O, 64);
+  StoreM(base, O + 64, r30);
+  Card(base, O + 64, 64);
+
+  // The registers the copy and its natives leave.
+  ctx.r3.s64 = e.r31.s64 + 64;
+  ctx.r4.s64 = e.r31.s64 + 320;
+  if (x) {
+    ctx.r5.s64 = e.r1.s64 + (turned ? 128 : 96);
+    ctx.r6.s64 = 1;
+  } else if (turned) {
+    ctx.r5.s64 = e.r1.s64 + 144;
+    ctx.r6.s64 = 1;
+  }
+  ctx.r8.s64 = 64;
+  ctx.r9.s64 = 16;
+  ctx.r10.s64 = 32;
+  PPCVRegister* v[14] = {&ctx.v0, &ctx.v1, &ctx.v2, &ctx.v3, &ctx.v4, &ctx.v5, &ctx.v6,
+                         &ctx.v7, &ctx.v8, &ctx.v9, &ctx.v10, &ctx.v11, &ctx.v12, &ctx.v13};
+  for (int k = 0; k < 14; ++k) katamari::PutV(*v[k], regs[k]);
+  if (x && b == 0) {
+    ctx.f13.f64 = SingleToDoublePure(first[0]);
+    ctx.f12.f64 = SingleToDoublePure(first[1]);
+    ctx.f11.f64 = SingleToDoublePure(first[2]);
+  } else {
+    ctx.f13.f64 = katamari::WidenF(one);
+    ctx.f12 = (x && b != 0) ? f12 : e.f12;
+    ctx.f11 = e.f11;
+  }
+  ctx.r1.s64 = e.r1.s64 + 304;
+  return true;
+}
+
+// Run both paths from the same state, keep the reference path's, compare. false = the register path did not cover
+// this call (the reference path must run).
+inline std::atomic<uint32_t> g_calls{0};
+inline std::atomic<uint64_t> g_compared{0};
+inline std::atomic<bool> g_off{false};
+
+inline bool Check(PPCContext& ctx, uint8_t* base, const Entry& e) {
+  const uint32_t O = e.r31.u32, F = e.r1.u32 - 176;
+  if (!detail::Straight(O, 1792) || !detail::Straight(F, 400)) return false;
+  const uint32_t at[5] = {O, O + 320, O + 1504, O + 1596, F};
+  const uint32_t len[5] = {128, 64, 12, 64, 400};
+  uint8_t before[668], fast[668];
+  for (uint32_t k = 0, off = 0; k < 5; off += len[k], ++k) std::memcpy(before + off, ::banjo::hot::Raw(base, at[k]), len[k]);
+  const uint32_t hw = ctx.fpscr.getcsr();
+  PPCContext c = ctx;
+  if (!Registers(c, base, e)) return false;
+  const uint32_t hw_fast = c.fpscr.getcsr();
+  for (uint32_t k = 0, off = 0; k < 5; off += len[k], ++k) {
+    std::memcpy(fast + off, ::banjo::hot::Raw(base, at[k]), len[k]);
+    std::memcpy(::banjo::hot::Raw(base, at[k]), before + off, len[k]);
+  }
+  ctx.fpscr.setcsr(hw);
+  Reference(ctx, base, e);
+  const uint32_t hw_ref = ctx.fpscr.getcsr();
+  std::string diff;
+  for (uint32_t k = 0, off = 0; k < 5 && diff.empty(); off += len[k], ++k) {
+    const uint8_t* now = ::banjo::hot::Raw(base, at[k]);
+    for (uint32_t i = 0; i < len[k]; ++i)
+      if (now[i] != fast[off + i]) {
+        diff = fmt::format("memory {:#010x} register path {:#04x} reference {:#04x}", at[k] + i, fast[off + i], now[i]);
+        break;
+      }
+  }
+  auto reg = [&](const char* name, uint64_t a, uint64_t r) {
+    if (diff.empty() && a != r) diff = fmt::format("{} register path {:#x} reference {:#x}", name, a, r);
+  };
+  reg("r1", c.r1.u64, ctx.r1.u64);
+  reg("r3", c.r3.u64, ctx.r3.u64);
+  reg("r4", c.r4.u64, ctx.r4.u64);
+  reg("r5", c.r5.u64, ctx.r5.u64);
+  reg("r6", c.r6.u64, ctx.r6.u64);
+  reg("r8", c.r8.u64, ctx.r8.u64);
+  reg("r9", c.r9.u64, ctx.r9.u64);
+  reg("r10", c.r10.u64, ctx.r10.u64);
+  reg("f11", c.f11.u64, ctx.f11.u64);
+  reg("f12", c.f12.u64, ctx.f12.u64);
+  reg("f13", c.f13.u64, ctx.f13.u64);
+  reg("lr", c.lr, ctx.lr);
+  reg("flush mode", c.fpscr.csr & ::rex::ppc::FPSCRRegister::GuestMask, ctx.fpscr.csr & ::rex::ppc::FPSCRRegister::GuestMask);
+  reg("host flush mode", hw_fast & ::rex::ppc::FPSCRRegister::GuestMask, hw_ref & ::rex::ppc::FPSCRRegister::GuestMask);
+  const PPCVRegister* va[14] = {&c.v0, &c.v1, &c.v2, &c.v3, &c.v4, &c.v5, &c.v6, &c.v7, &c.v8, &c.v9, &c.v10, &c.v11, &c.v12, &c.v13};
+  const PPCVRegister* vb[14] = {&ctx.v0, &ctx.v1, &ctx.v2, &ctx.v3, &ctx.v4, &ctx.v5, &ctx.v6, &ctx.v7, &ctx.v8, &ctx.v9, &ctx.v10, &ctx.v11, &ctx.v12, &ctx.v13};
+  for (int k = 0; k < 14 && diff.empty(); ++k)
+    if (std::memcmp(va[k]->u8, vb[k]->u8, 16) != 0) diff = fmt::format("v{} differs", k);
+  if (!diff.empty()) {
+    g_off.store(true, std::memory_order_relaxed);
+    REXLOG_ERROR("[hot] DIFFERENCE sub_82277E70 (katamari_hand_transform_chain): {}; object {:#010x}; the reference "
+                 "path's result kept, the register path off for the rest of the run", diff, O);
+    ::me::native::VerifyDifference();
+    return true;
+  }
+  ::me::native::g_verify_native_checks.fetch_add(1, std::memory_order_relaxed);
+  const uint64_t n = g_compared.fetch_add(1, std::memory_order_relaxed) + 1;
+  if (n == 1000 || (n & ((uint64_t(1) << 18) - 1)) == 0)
+    REXLOG_INFO("[hot] sub_82277E70 (hand, transform chain): {} calls compared with the reference path, 0 differences", n);
+  return true;
+}
+
+[[gnu::noinline]] inline bool Run(PPCContext& ctx, uint8_t* base) {
+  const PPCRegister r1_in = ctx.r1;
+  PPCRegister r1 = r1_in;
+  r1.u32 = r1_in.u32 - 304;
+  if (!detail::Straight(r1.u32 - 176, 480)) return false;  // nothing written yet: the copy runs
+  // The copy's prologue: the three saves of f29-f31 (zero: locals of the generated function), the back chain.
+  std::memset(::banjo::hot::Raw(base, r1_in.u32 - 80), 0, 24);
+  katamari::StoreW(::banjo::hot::Raw(base, r1.u32), r1_in.u32);
+  const PPCRegister r31 = ctx.r3;
+  ctx.r1 = r1;
+  sub_822889D8(ctx, base);
+  ctx.r3 = r31;
+  sub_82275268(ctx, base);
+  const Entry e{r31, ctx.r1, ctx.f11, ctx.f12, ctx.f13, ctx.lr};
+  if (!g_off.load(std::memory_order_relaxed)) {
+    static const bool verify = REXCVAR_GET(katamari_hand_transform_chain_verify) || REXCVAR_GET(banjo_cpu_verify);
+    const uint32_t n = g_calls.fetch_add(1, std::memory_order_relaxed);
+    if (verify || n < 2000 || (n & 255) == 0) {
+      if (Check(ctx, base, e)) return true;
+    } else if (Registers(ctx, base, e)) {
+      return true;
+    }
+  }
+  Reference(ctx, base, e);
+  return true;
+}
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, [[maybe_unused]] S& s) {
+  if constexpr (!std::is_same_v<S, ::banjo::hot::Fast>) {
+    return false;  // the guard's logged forms and the counting form: the copy, which stops at the first real call
+  } else {
+    if (!katamari::KOn(kXformChain)) [[unlikely]] return false;
+    return Run(ctx, base);
+  }
+}
+
+}  // namespace n_82277E70
+
+// sub_8223A970 - "translate, then multiply" (57 call sites; twice in every call of sub_82277E70's register path's
+// reference): r3 = T(x, y, z at r4) x r3 as it was. The original copies r3 to its frame (r1 - 176 + 80) with the copy
+// native, builds the translation matrix at r3 with the translation native and multiplies in place with the multiply
+// native: two matrix stores read back at once by the next native. Here: the matrix loaded once, T and the product in
+// registers (katamari::MatMul's statements, n_82277E70::MatMulRegs), then the bytes the original leaves: its frame
+// (the link register's low word at r1 - 8, the two zero saves, the back chain, the copy of the matrix at frame + 80
+// and its card) and the product with its card. Registers as the copy leaves them: f13 (the translation native's),
+// r8-r10 and v0-v13 (the multiply's), r3 (the matrix), r4 (frame + 80), r1, lr (its own low word). Flush mode on.
+// Declined (nothing written; the copy runs): one of the three natives off, a range that is not plain memory, a
+// signalling NaN in the matrix (the copy native declines it), in the vector or the constants (the translation native
+// declines them), the matrix, the vector and the frame overlapping each other, the matrix over the two constants.
+namespace n_8223A970 {
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  using katamari::KOn;
+  using katamari::Overlap;
+  if (!KOn(kXlateMul) || !KOn(kMatCopy) || !KOn(kMatTranslation) || !KOn(kMatMul)) [[unlikely]] return false;
+  const uint32_t m = ctx.r3.u32, v = ctx.r4.u32, r1 = ctx.r1.u32, f = r1 - 176;
+  if (!detail::Straight(f, 176) || !detail::Straight(m, 64) || !detail::Straight(v, 12)) [[unlikely]] return false;
+  if (Overlap(m, 64, v, 12) || Overlap(m, 64, f, 176) || Overlap(v, 12, f, 176)) [[unlikely]] return false;
+  if (uint32_t(n_82277E70::kZeroVa + 7u - m) < 64u + 7u) [[unlikely]] return false;
+  const uint32_t one = n_82277E70::L32(base, n_82277E70::kOneVa), zero = n_82277E70::L32(base, n_82277E70::kZeroVa);
+  uint32_t vec[3] = {n_82277E70::L32(base, v), n_82277E70::L32(base, v + 4), n_82277E70::L32(base, v + 8)};
+  if (katamari::Snan(one) | katamari::Snan(zero) | katamari::Snan(vec[0]) | katamari::Snan(vec[1]) |
+      katamari::Snan(vec[2])) [[unlikely]]
+    return false;
+  n_82277E70::M4 old = n_82277E70::LoadM(base, m);
+  if (n_82277E70::Snan(old)) [[unlikely]] return false;
+  s.Hand(kXlateMul, 64);
+  if (!s.Note(r1 - 24, 24) || !s.Note(f, 4) || !s.Note(f + 80, 64) || !s.Note(m, 64)) [[unlikely]] return true;
+  n_82277E70::TranslateFrame(ctx, base, r1);
+  n_82277E70::StoreM(base, f + 80, old);
+  ::banjo::hot::Card(base, f + 80, 64);
+  ctx.fpscr.enableFlushMode();
+  katamari::Fence();
+  n_82277E70::PinM(old);
+  for (auto& w : vec) katamari::PinW(w);
+  n_82277E70::V regs[14];
+  n_82277E70::M4 r = n_82277E70::MatMulRegs(n_82277E70::Translation(one, zero, vec), old, regs);
+  for (auto& x : regs) katamari::Pin(x);
+  n_82277E70::PinM(r);
+  ::banjo::hot::Card(base, m, 64);
+  n_82277E70::StoreM(base, m, r);
+  ctx.f13.f64 = katamari::WidenF(one);
+  ctx.r8.s64 = 64;
+  ctx.r9.s64 = 16;
+  ctx.r10.s64 = 32;
+  PPCVRegister* vr[14] = {&ctx.v0, &ctx.v1, &ctx.v2, &ctx.v3, &ctx.v4, &ctx.v5, &ctx.v6,
+                          &ctx.v7, &ctx.v8, &ctx.v9, &ctx.v10, &ctx.v11, &ctx.v12, &ctx.v13};
+  for (int k = 0; k < 14; ++k) katamari::PutV(*vr[k], regs[k]);
+  PPCRegister fr = ctx.r1;
+  fr.u32 = f;
+  ctx.r4.s64 = fr.s64 + 80;
+  fr.s64 = fr.s64 + 176;
+  ctx.r1 = fr;
+  return true;
+}
+
+}  // namespace n_8223A970
+
+// sub_82265C08 - the visibility manager's box test (the hot loop of sub_822683D0, 21 % of the main thread in the rc9
+// run's slowest stage, and of five more functions of the same manager): the matrix the caller passed in r3-r10 and
+// copied to its frame at r1 + 80 is transposed and multiplied with the one at r1 + 80; then for each of the box's
+// eight corners (16 bytes each from the pointer the caller left at r1 + 148: object + 1168 in sub_822683D0) the corner
+// goes to r1 - 16, its w is overwritten with 1.0 (stfs to r1 - 4), it is loaded back, transformed (four vmsum4fp128),
+// stored to r1 - 16 again and tested against its w (vcmpbfp); the outcodes are ANDed; all clear -> 0 (visible), else
+// after eight corners 1 (outside one plane). Two things on the A57: the corner's store, the 4-byte store into it and
+// the 16-byte load of the same bytes fail store forwarding in every iteration (one of the two hottest loads of the
+// main thread), and the corners themselves miss the cache: the manager walks every object of the stage through the
+// link at +1500 and touches each one's fields cold.
+// Here: the statements of the processed copy (app/generated/hot/n_822683D0.h, f_sub_82265C08) in their order on locals,
+// the corner's w put in the register (lane 0 of the generated layout is the guest's word 3), the eight-corner loop's
+// four loop-invariant merges done once, the stack at r1 - 16 written once with what the last iteration leaves there
+// (the transformed corner) and its card marked, every other store as the copy makes it. Registers: r3 and what the
+// copy writes back (r8, r9, r10, v0-v13). Flush mode on, as the copy sets it.
+// And, before the work: the next object of the walk (the word at corners + 332, object + 1500) is read when it is on
+// the corners' own 4 KB page (the page is mapped: the corners are read from it) and its hot lines are prefetched
+// (+64 and +128: its matrix; +1152 to +1280: its corners; +1408, +1472, +1536: the fields the walk reads first). A
+// prefetch changes no result; it only overlaps the next object's cache misses with this one's work.
+// Declined: r1 not 16-byte aligned (the copy's lvx / stvx at r1 - 16 would round down).
+namespace n_82265C08 {
+
+using V = simde__m128i;
+[[gnu::always_inline]] inline V LdV(uint8_t* base, uint32_t ea) {  // lvx128 as generated: aligned, byte-reversed
+  return REX_BSWAP128(simde_mm_load_si128(reinterpret_cast<const V*>(::banjo::hot::Raw(base, ea & ~0xFu))));
+}
+[[gnu::always_inline]] inline void StV(uint8_t* base, uint32_t ea, V v) {
+  simde_mm_store_si128(reinterpret_cast<V*>(::banjo::hot::Raw(base, ea & ~0xFu)), REX_BSWAP128(v));
+}
+[[gnu::always_inline]] inline V Dp(V a, V b) {
+  return simde_mm_castps_si128(simde_mm_dp_ps(simde_mm_castsi128_ps(a), simde_mm_castsi128_ps(b), 0xFF));
+}
+[[gnu::always_inline]] inline V Hi(V a, V b) { return simde_mm_unpackhi_epi32(a, b); }
+[[gnu::always_inline]] inline V Lo(V a, V b) { return simde_mm_unpacklo_epi32(a, b); }
+
+[[gnu::always_inline]] inline void PrefetchNext(uint8_t* base, uint32_t corners) {
+  if ((corners & 0xFFFu) + 336u > 0x1000u) return;  // the link is on another page: not read
+  const uint32_t next = katamari::LoadW(::banjo::hot::Raw(base, corners + 332));
+  if (next == 0) return;
+  static constexpr uint32_t kLines[] = {64, 128, 1152, 1216, 1280, 1408, 1472, 1536};
+  for (const uint32_t off : kLines) __builtin_prefetch(::banjo::hot::Raw(base, next + off), 0, 3);
+}
+
+template <class S>
+[[gnu::always_inline]] inline bool Native(PPCContext& __restrict ctx, uint8_t* base, S& s) {
+  if (!katamari::KOn(kBoxTest)) [[unlikely]] return false;
+  const uint32_t r1 = ctx.r1.u32;
+  if (r1 & 0xFu) [[unlikely]] return false;
+  if (!detail::Straight(r1 - 16, 16 + 152)) [[unlikely]] return false;
+  const uint32_t corners = katamari::LoadW(::banjo::hot::Raw(base, r1 + 148));
+  if (!detail::Straight(corners & ~0xFu, 8 * 16)) [[unlikely]] return false;
+  if constexpr (std::is_same_v<S, ::banjo::hot::Fast>) PrefetchNext(base, corners);
+  s.Hand(kBoxTest, 8 * 16);
+  // The argument stores (std r3-r10 to the caller's parameter area, 16 .. 79), in the copy's order.
+  if (!s.Note(r1 + 16, 64)) [[unlikely]] return true;
+  uint8_t* sp = ::banjo::hot::Raw(base, r1);
+  auto std64 = [&](uint32_t off, uint64_t v) {
+    const uint64_t be = __builtin_bswap64(v);
+    std::memcpy(sp + off, &be, 8);
+  };
+  std64(64, ctx.r9.u64);
+  std64(72, ctx.r10.u64);
+  std64(56, ctx.r8.u64);
+  std64(16, ctx.r3.u64);
+  std64(24, ctx.r4.u64);
+  std64(32, ctx.r5.u64);
+  std64(40, ctx.r6.u64);
+  std64(48, ctx.r7.u64);
+  // The static constant (0xC0000000 x3, 0) at 0x82C64EF0, built on the first call (flag bit 0 of 0x82C64F00).
+  PPCRegister r8;
+  r8.s64 = int64_t(-2100953088) + 20208;
+  const uint32_t flag = katamari::LoadW(::banjo::hot::Raw(base, 0x82C64F00u));
+  V v13;
+  if ((flag & 1u) == 0) {
+    if (!s.Note(r1 - 16, 16) || !s.Note(0x82C64F00u, 4) || !s.Note(0x82C64EF0u, 16)) [[unlikely]] return true;
+    katamari::StoreW(sp - 16, 0xC0000000u);
+    katamari::StoreW(sp - 12, 0xC0000000u);
+    katamari::StoreW(sp - 8, 0xC0000000u);
+    katamari::StoreW(sp - 4, 0u);
+    katamari::StoreW(::banjo::hot::Raw(base, 0x82C64F00u), flag | 1u);
+    ::banjo::hot::Card(base, 0x82C64F00u, 4);
+    v13 = LdV(base, r1 - 16);
+    ::banjo::hot::Card(base, 0x82C64EF0u, 16);
+    StV(base, 0x82C64EF0u, v13);
+  } else {
+    v13 = LdV(base, 0x82C64EF0u);
+  }
+  // The pre-loop part, as the copy's statements.
+  V v0 = LdV(base, r1 + 48);
+  V v10 = LdV(base, r1 + 16);
+  V v12 = Hi(v0, v10);
+  v10 = Lo(v0, v10);
+  V v8 = LdV(base, r1 + 64);
+  V v7 = LdV(base, r1 + 32);
+  V v11 = Hi(v8, v7);
+  V v6 = Lo(v8, v7);
+  v0 = Hi(v11, v12);
+  V v9 = LdV(base, r1 + 80);
+  v12 = Lo(v11, v12);
+  v11 = Hi(v6, v10);
+  v10 = Lo(v6, v10);
+  ctx.fpscr.enableFlushMode();
+  katamari::Fence();
+  katamari::Pin(v0), katamari::Pin(v9), katamari::Pin(v10), katamari::Pin(v11), katamari::Pin(v12);
+  v6 = Dp(v9, v0);
+  V v5 = Dp(v9, v12);
+  V v2 = Dp(v9, v11);
+  v8 = LdV(base, r1 + 96);
+  katamari::Pin(v8);
+  v9 = Dp(v9, v10);
+  V v4 = Dp(v8, v12);
+  V v3 = Dp(v8, v0);
+  V v1 = Dp(v8, v10);
+  v8 = Dp(v8, v11);
+  v7 = LdV(base, r1 + 112);
+  katamari::Pin(v7);
+  const V v30 = Dp(v7, v12);
+  const V v31 = Dp(v7, v10);
+  const V v29 = Dp(v7, v11);
+  v7 = Dp(v7, v0);
+  v6 = Hi(v2, v6);
+  v9 = Hi(v9, v5);
+  v5 = Hi(v1, v4);
+  v9 = Hi(v9, v6);
+  v6 = LdV(base, r1 + 128);
+  katamari::Pin(v6);
+  v10 = Dp(v6, v10);
+  v12 = Dp(v6, v12);
+  v8 = Hi(v8, v3);
+  v11 = Dp(v6, v11);
+  v0 = Dp(v6, v0);
+  v4 = Hi(v31, v30);
+  v7 = Hi(v29, v7);
+  v8 = Hi(v5, v8);
+  v3 = simde_mm_setzero_si128();  // REX_RO_V128(0x82012ED0, 0, 0): the constant all zero
+  v7 = Hi(v4, v7);
+  v12 = Hi(v10, v12);
+  v0 = Hi(v11, v0);
+  v6 = Hi(v12, v0);
+  // The loop. Its first four merges depend only on v6-v9: done once (the same values every iteration).
+  const V m0 = Hi(v7, v9), m12 = Hi(v6, v8), m10 = Lo(v6, v8), m11 = Lo(v7, v9);
+  const V c5 = Hi(m12, m0), c12 = Lo(m12, m0), c4 = Hi(m10, m11), c11 = Lo(m10, m11);
+  const uint8_t* pc = ::banjo::hot::Raw(base, corners & ~0xFu);
+  uint32_t r9 = 8, r10 = 0, r3 = 1;
+  V t{};
+  for (;;) {
+    const V corner = REX_BSWAP128(simde_mm_load_si128(reinterpret_cast<const V*>(pc)));
+    pc += 16;
+    v0 = simde_mm_insert_epi32(corner, int32_t(0x3F800000), 0);  // stfs 1.0 to r1 - 4: the guest's word 3
+    katamari::Pin(v0);
+    v10 = Dp(v0, c5);
+    v12 = Dp(v0, c12);
+    v5 = Dp(v0, c4);
+    v0 = Dp(v0, c11);
+    v11 = Hi(v5, v10);
+    v0 = Hi(v0, v12);
+    v0 = Hi(v0, v11);
+    v12 = simde_mm_shuffle_epi32(v0, 0x0);
+    t = v0;  // what this iteration leaves at r1 - 16
+    const V vtemp = simde_mm_castps_si128(simde_mm_and_ps(
+        simde_mm_cmpgt_ps(simde_mm_castsi128_ps(v0), simde_mm_castsi128_ps(v12)),
+        simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x80000000)))));
+    v0 = simde_mm_castps_si128(simde_mm_and_ps(
+        simde_mm_cmplt_ps(simde_mm_castsi128_ps(v0),
+                          simde_mm_xor_ps(simde_mm_castsi128_ps(v12), simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x80000000))))),
+        simde_mm_castsi128_ps(simde_mm_set1_epi32(int(0x40000000)))));
+    v0 = simde_mm_or_si128(vtemp, v0);
+    v13 = simde_mm_and_si128(v13, v0);
+    v0 = simde_mm_cmpeq_epi32(v13, v3);
+    const bool all = simde_mm_movemask_ps(simde_mm_castsi128_ps(v0)) == 0xF;
+    r10 = all ? 0x80u : 0u;
+    if (all) {
+      r3 = 0;
+      break;
+    }
+    if (--r9 == 0) break;
+  }
+  // r1 - 16: the copy stores the corner, its w, and the transformed corner there in every iteration (and marks the
+  // stack page's card): the last transformed corner is what stays.
+  if (!s.Note(r1 - 16, 16)) [[unlikely]] return true;
+  ::banjo::hot::Card(base, r1 - 16, 16);
+  StV(base, r1 - 16, t);
+  ctx.r3.s64 = r3;
+  ctx.r8 = r8;
+  ctx.r9.s64 = r9;
+  ctx.r10.u64 = r10;
+  using katamari::PutV;
+  PutV(ctx.v0, v0);
+  PutV(ctx.v1, v1);
+  PutV(ctx.v2, v2);
+  PutV(ctx.v3, v3);
+  PutV(ctx.v4, c4);
+  PutV(ctx.v5, v5);
+  PutV(ctx.v6, v6);
+  PutV(ctx.v7, v7);
+  PutV(ctx.v8, v8);
+  PutV(ctx.v9, v9);
+  PutV(ctx.v10, v10);
+  PutV(ctx.v11, v11);
+  PutV(ctx.v12, v12);
+  PutV(ctx.v13, v13);
+  return true;
+}
+
+}  // namespace n_82265C08
 
 }  // namespace banjo::hand

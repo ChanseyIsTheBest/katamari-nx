@@ -45,8 +45,10 @@ REXCVAR_DEFINE_STRING(input_backend, "sdl", "Input", "Input backend: sdl, xinput
 REXCVAR_DEFINE_BOOL(guide_button, false, "Input", "Enable guide button pass-through");
 REXCVAR_DEFINE_STRING(input_script, "", "Input",
                       "Test automation: button presses for user 0 as 'seconds:button,...' counted from the first input "
-                      "poll (buttons A B X Y START BACK UP DOWN LEFT RIGHT LB RB), each held 0.2 s. While set, user 0 "
-                      "always has a pad connected (works minimized, with no controller)")
+                      "poll (buttons A B X Y START BACK UP DOWN LEFT RIGHT LB RB), each held 0.2 s, or as long as "
+                      "'@seconds' after the name says; the sticks pushed all the way with LSUP LSDOWN LSLEFT LSRIGHT "
+                      "and RSUP RSDOWN RSLEFT RSRIGHT (e.g. '30:LSUP@2.5'). While set, user 0 always has a pad "
+                      "connected (works minimized, with no controller)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_INT32(input_script_sticks, 0, "Input",
                      "Test automation with input_script (banjo-nx 2026-10-23): from this many seconds after the first "
@@ -243,6 +245,10 @@ namespace {
 struct ScriptedPress {
   double at;
   uint16_t buttons;
+  double hold = 0.2;
+  // katamari-nx (2026-11-01): a stick pushed all the way (axis 0-3: left x, left y, right x, right y).
+  int axis = -1;
+  int16_t value = 0;
 };
 const std::vector<ScriptedPress>& InputScript() {
   static const std::vector<ScriptedPress> presses = [] {
@@ -257,13 +263,26 @@ const std::vector<ScriptedPress>& InputScript() {
       const size_t colon = item.find(':');
       if (colon == std::string::npos) continue;
       const double seconds = std::atof(item.substr(0, colon).c_str());
-      const std::string name = item.substr(colon + 1);
+      std::string name = item.substr(colon + 1);
+      double hold = 0.2;
+      if (const size_t hold_at = name.find('@'); hold_at != std::string::npos) {
+        hold = std::atof(name.substr(hold_at + 1).c_str());
+        name.resize(hold_at);
+      }
       static const std::pair<const char*, uint16_t> kButtons[] = {
           {"UP", 0x0001},    {"DOWN", 0x0002}, {"LEFT", 0x0004}, {"RIGHT", 0x0008}, {"START", 0x0010},
           {"BACK", 0x0020},  {"LB", 0x0100},   {"RB", 0x0200},   {"A", 0x1000},     {"B", 0x2000},
           {"X", 0x4000},     {"Y", 0x8000}};
       for (const auto& [button, bits] : kButtons)
-        if (name == button) out.push_back({seconds, bits});
+        if (name == button) out.push_back({seconds, bits, hold});
+      static const struct {
+        const char* name;
+        int axis;
+        int16_t value;
+      } kSticks[] = {{"LSLEFT", 0, -32767}, {"LSRIGHT", 0, 32767}, {"LSDOWN", 1, -32767}, {"LSUP", 1, 32767},
+                     {"RSLEFT", 2, -32767}, {"RSRIGHT", 2, 32767}, {"RSDOWN", 3, -32767}, {"RSUP", 3, 32767}};
+      for (const auto& stick : kSticks)
+        if (name == stick.name) out.push_back({seconds, 0, hold, stick.axis, stick.value});
     }
     if (!out.empty()) REXLOG_INFO("input_script: {} presses scripted", out.size());
     return out;
@@ -310,7 +329,7 @@ uint16_t ScriptedButtons() {
   const double now = ScriptSeconds();
   uint16_t buttons = 0;
   for (const ScriptedPress& press : InputScript()) {
-    if (now >= press.at && now < press.at + 0.2) {
+    if (press.axis < 0 && now >= press.at && now < press.at + press.hold) {
       buttons |= press.buttons;
       static double logged = -1.0;
       if (logged != press.at) {
@@ -320,6 +339,22 @@ uint16_t ScriptedButtons() {
     }
   }
   return buttons;
+}
+// The scripted stick pushes held now (katamari-nx, 2026-11-01); true when one is.
+bool ScriptedStickPushes(X_INPUT_GAMEPAD& pad) {
+  const double now = ScriptSeconds();
+  bool any = false;
+  for (const ScriptedPress& press : InputScript()) {
+    if (press.axis < 0 || now < press.at || now >= press.at + press.hold) continue;
+    switch (press.axis) {
+      case 0: pad.thumb_lx = press.value; break;
+      case 1: pad.thumb_ly = press.value; break;
+      case 2: pad.thumb_rx = press.value; break;
+      default: pad.thumb_ry = press.value; break;
+    }
+    any = true;
+  }
+  return any;
 }
 }  // namespace
 
@@ -378,8 +413,11 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
       out_state->packet_number = packet;
       out_state->gamepad.buttons = buttons;
       ScriptedSticks(out_state->gamepad);  // banjo-nx (2026-10-23)
-      if (REXCVAR_GET(input_script_sticks) > 0)
-        out_state->packet_number = ++packet;  // the sticks change at every read
+      static bool was_pushed = false;
+      const bool pushed = ScriptedStickPushes(out_state->gamepad);
+      if (REXCVAR_GET(input_script_sticks) > 0 || pushed || was_pushed)
+        out_state->packet_number = ++packet;  // the sticks change at every read (and once more on release)
+      was_pushed = pushed;
     }
     return X_ERROR_SUCCESS;
   }

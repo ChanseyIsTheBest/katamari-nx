@@ -676,3 +676,65 @@ Accessory) from the game. It does this by adding their display names to the SDK'
 - Checked in Ryujinx (run `rc9_default`, a toml without the line, so the built-in default decides): the game's DLC
   list 32 s into the run had the nine `[dlc] ... hidden` lines and 7 entries, the seven stage packs; 60 fps after it,
   no errors, no shader captured.
+
+## rc10 (2026-11-01): the rc9 console run, three hand natives, 560 more copies, the presents menu's seam
+
+**The rc9 console run** (`docs/console-rc9-breakdown.md`, handheld, three cores). The slowest place so far is the
+stage with the music M71_KDXSE: 19-30 fps, the main thread at 101 % of a core (the two others half idle), 46 % of it in
+sub_82277E70 (objects' world transforms) and sub_822683D0 (the visibility manager's walk). The `rex_crash.log` that
+came with the logs was rc6's (the supermarket crash, still on the SD card).
+
+**Timers after a sleep.** A repeating timer that is late added one interval and fired again
+(`sdk/src/core/timer_queue.cpp`), so after the console slept it replayed every interval it missed: 66-88 % of a core
+for minutes after a 6.5-hour sleep. Now a timer more than a second behind goes on from the present; less late than
+that (a busy moment) it still catches up as before.
+
+**Hand-written natives** (the user: "optimise these two sub_82277E70 and sub_822683D0 by hand"; the end of
+`app/src/cpu/hot/banjo_hand_natives.h`, `hand.txt`, keys `katamari_hand_transform_chain`, `katamari_hand_box_test`,
+`katamari_hand_translate_multiply`):
+- `sub_82277E70`: after its two real calls (both make indirect calls, so no guard can repeat it), the matrix chain
+  (constant copy, three or four products, one or two 3x3 rotations, two translate calls, four copies) on registers:
+  the same dot products in the same order as the multiply native (`MatMulRegs`), the rotation native's and the
+  generated code's formulas, each in the flush mode the original uses, every byte the original leaves (matrices,
+  stack temporaries, frames, cards) and every register. Its own check against the existing natives in the
+  original's order: every call with `katamari_hand_transform_chain_verify` or `banjo_cpu_verify`, else the first
+  2000 calls and one in 256. On the A57 the original stored each matrix (byte-swapped) and the next native loaded it
+  back at once: failed store forwarding, plus fourteen vector registers written to the context per product.
+- `sub_82265C08`: the visibility manager's box test, sub_822683D0's hot loop: the eight corners without each one's
+  store, 4-byte store and reload through the stack, the loop's invariant merges once, and the next object of the
+  walk (the link at +1500, read only when it is on the corners' own page) prefetched while this one is tested.
+- `sub_8223A970` (translate, then multiply; 57 call sites): copy, translation and product on registers.
+- Not five: the rest of the main thread's hot list (sub_822470D0, sub_827A5B00, sub_8227A280, sub_822772C0,
+  sub_822889D8) are dispatchers whose time is cache misses on object fields, which hand code does not remove; the
+  two prefetches aim at those misses.
+
+**More machine copies:** every function still in generated code with at least one sample in the rc4, rc5 and rc9
+console profiles (`tools/switch_hot_bulk.py --min-samples 1`): 560 more, 1,387 in the bulk list (tiny leaves, refused
+forms and app-mentioned addresses left out).
+
+**Checked on the PC (Renut):**
+- Run `verify_newgame`: a new game into the practice room, the sticks rolling from 240 s, `banjo_cpu_verify` (every
+  CPU enhancement on every use). sub_82265C08 4,314,903 calls compared with the original, sub_8223A970 4,591,798,
+  the copies 342.6 M calls (1,219 of 1,387 bulk copies reached): 0 differences (8 differed once and not when
+  repeated: another thread's inputs). The user's save moved out of `out/pc_user` first (it changes the menu path).
+- Run `verify_chain`: the guard in its normal mode (so sub_82277E70's hook answers with its copy, the native in
+  front) and the transform chain's check on every call: 28,049,408 calls compared with the reference path, 0
+  differences.
+
+**The emulated GPU again (the user: get it working, to double check the presents menu).** `banjo_renderer =
+"emulated"` (PC only) leaves the game's Direct3D to the SDK's emulated Xbox 360 GPU: Renut's hooks fall back to the
+game's own functions, the app loads the GPU plugin. Two fixes on the way: the app's ImGui dialogs (Renut's overlay
+context only) are not created then, and the paths resolve without the wizard. Runs also need
+`--banjo_noncpu_enhancements=false`, `--gpu_backend=vulkan --vulkan_device=1` (the RTX 3060; device 0 is the AMD
+integrated GPU) and the DLC installed (the user's save needs it). It draws the whole game.
+- The presents menu's yellow bar (a 1280 x 4 opaque quad through the selected row) is the game's: the emulated GPU
+  draws it in the same rows as Renut (half-covered rows 200 and 204, full 201-203). With Renut's half-pixel offset
+  off the bar lands a pixel off, so the offset is right.
+- The thin dark line across the big circle is Renut's: the emulated GPU has none. Cause: under MSAA the game samples
+  its interpolators at the centroid of the covered samples (logged with `gpu_log_interpolator_sampling` in the
+  emulated GPU: SQ_CONTEXT_MISC.sc_sample_cntl 0 for most shaders, 2 with SQ_INTERPOLATOR_CNTL's sampling pattern
+  0004 for a few), Renut at the centre: the circle's two halves meet on a row of pixel centres, where the texture
+  coordinate is on the border of the circle's image. A shader's header holds both registers (fieldC = its
+  SQ_CONTEXT_MISC, field18 = its SQ_INTERPOLATOR_CNTL); XenosRecomp (RENUT_RECOMP) now declares each input
+  `centroid` by Xenia's rule. Only MSAA draws change (a single-sample pixel's centroid is its centre). All 195
+  shaders compile with uam; the DKSH cache remade (273 variants).

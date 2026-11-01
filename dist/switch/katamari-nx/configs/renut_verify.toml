@@ -598,6 +598,7 @@ banjo_renut_record_extents_verify = true
 katamari_hand_sphere_box = true
 banjo_xma_frame_cache = false
 katamari_dlc_unlock_packs = false  # true: also load the accessory / character / special accessory packs
+katamari_hand_transform_chain_verify = true
 
 [input_p1]
 a = ""

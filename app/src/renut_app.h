@@ -86,6 +86,12 @@ public:
     // }
 
     void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+#if BANJO_RENUT_RENDERER
+        // katamari-nx (2026-11-01): the app's dialogs draw with the ImGui inside this executable, whose context only
+        // Renut's overlay drawer creates; under the SDK's presenter (banjo_renderer = "emulated") they would draw into
+        // no context at all. The emulated GPU is a reference image: no overlays.
+        if (!banjo::renut_gpu::Active()) return;
+#endif
         //drawer->AddDialog(new FpsOverlayDialog(drawer));
         fps_dialog_ = std::make_unique<FpsOverlayDialog>(drawer);
         fps_dialog_->fpsManager = &fpsManager;
@@ -254,6 +260,12 @@ public:
         std::function<void(rex::PathConfig)> resume) override
     {
         StartRenutRenderer();
+        if (!path_wizard_) {
+            // katamari-nx (2026-11-01): banjo_renderer = "emulated" creates no app dialogs (OnCreateDialogs), so no
+            // wizard: the paths as given (the command line / the toml).
+            renut::dlc::SetUserDataRoot(defaults.user_data_root);
+            return rex::ReXApp::OnFinalizePaths(defaults, std::move(resume));
+        }
         path_wizard_->Init(app_name_, defaults, [resume](rex::PathConfig resolved) {
             renut::dlc::SetUserDataRoot(resolved.user_data_root);
             resume(resolved);

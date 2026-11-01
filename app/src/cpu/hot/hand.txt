@@ -32,3 +32,7 @@
 8275AA88   # N points by a 4x4 matrix with the divide by w (job threads, 1.1 %)
 8276E3D8   # integration step of N bodies (positions, rotations normalised)
 824E97F0 exact=f1   # sine (range reduction and polynomial)
+# 2026-11-01 (rc10), the user's request "optimise these two sub_82277E70 and sub_822683D0 by hand": docs/katamari-notes.md, "rc10".
+82277E70 exact=r1,r3,r4,r5,r6,r8,r9,r10,f11,f12,f13,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13   # objects' world transform: the matrix chain in registers, the next object prefetched (checks itself: no guard can repeat it)
+82265C08 exact=r3,r8,r9,r10,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13   # visibility manager's box test (sub_822683D0's hot loop): no stack round trip per corner, the next object prefetched
+8223A970 exact=r1,r3,r4,r8,r9,r10,f13,v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13   # translate then multiply: copy, translation and product in registers
