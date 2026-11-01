@@ -13,6 +13,7 @@
 #include <unistd.h>  // ftruncate (LoadCache)
 
 #include <fmt/format.h>
+#include <rex/cvar.h>
 #include <rex/logging.h>
 #include <zstd.h>
 
@@ -28,6 +29,8 @@
 // one, hence weak.
 extern const uint8_t g_deko3dGlslPackage[] __attribute__((weak));
 extern const size_t g_deko3dGlslPackageSize __attribute__((weak));
+
+REXCVAR_DECLARE(std::string, log_level);  // sdk/src/core/logging.cpp
 
 namespace banjo::renut_gpu::deko3d {
 
@@ -396,8 +399,11 @@ std::unique_ptr<plume::RenderShader> CreateGameShader(plume::RenderDevice *devic
 
 void InstallShaderCache() {
   // The back end's messages into this log (plume writes them to stderr otherwise), and into deko3d.log next to the NRO,
-  // flushed at each line: the log's buffer is lost when the process dies.
-  static FILE *diag = std::fopen(NextToExecutable("deko3d.log").string().c_str(), "w");
+  // flushed at each line: the log's buffer is lost when the process dies. katamari-nx (2026-11-02): not with
+  // log_level "off" (the user's PGO build: only the crash logs).
+  static FILE *diag = REXCVAR_GET(log_level) == "off"
+                          ? nullptr
+                          : std::fopen(NextToExecutable("deko3d.log").string().c_str(), "w");
   static std::mutex diag_mutex;
   plume::SetDeko3DLogCallback([](const char *message) {
     REXLOG_INFO("[deko3d] {}", message);

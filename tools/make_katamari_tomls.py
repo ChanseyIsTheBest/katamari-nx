@@ -83,9 +83,19 @@ VERIFY.update({'banjo_hot_guard_calls': '4000', 'banjo_hot_guard_period': '64',
                'katamari_hand_sphere_box': 'true',
                # rc10: sub_82277E70's native checks itself (no guard can repeat it): every call here.
                'katamari_hand_transform_chain_verify': 'true'})
+# 2026-11-02, the user's PGO build: "turn off all logging besides crash logging". The log off (no file is made:
+# sdk/src/core/logging.cpp; deko3d.log neither), the samplers, the stall watchdog and the renderer's diagnostics off
+# (they would also put their own code in the profile, as banjo-nx's profile sessions turned them off). The crash
+# handler's rex_crash.log and the crash hooks' rex_stderr.log (abort, terminate and Mesa messages) stay.
+PGO = {'log_level': '"off"', 'switch_profile_stacks': 'false', 'banjo_cpu_profiler': 'false',
+       'banjo_show_profiler': 'false', 'banjo_show_fps': 'false', 'banjo_stall_watch_seconds': '0',
+       'renut_gpu_profile': '0.0', 'banjo_renut_diag_resolve_trace': 'false', 'banjo_renut_diag_gpu_shaders': 'false',
+       'banjo_renut_diag_terrain': 'false', 'banjo_hot_guard_calls': '0', 'banjo_hot_guard_period': '0'}
 CONFIGS = {
     'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
                                   'must count 0 differences)'),
+    'renut_pgo.toml': (PGO, 'the shipped settings with only the crash logs (the PGO build\'s renut.toml: no log, no '
+                            'profilers, no diagnostics)'),
     # renut_nomsaa.toml left out (2026-10-30): disable_msaa acts through banjo-nx's mid-asm hooks at N&B's render-target
     # creation (renut_engine/hooks.cpp, not built here); in this port the key changes nothing (the emu3 run still
     # resolved 4-sample depth). It needs hooks at Katamari's own render-target creation first.

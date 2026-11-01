@@ -584,10 +584,12 @@ if(REXGLUE_PLATFORM_SWITCH)
     if(EXISTS "${RENUT_ICON}")
         set(RENUT_ICON_ARG ICON "${RENUT_ICON}")
     endif()
+    # katamari-nx (2026-11-02, the user's request): version 1.0.0, author ChanseyIsTheBest, the user's icon (the cover
+    # art, kept out of git: tools/switch/icon/ is ignored; without it the NRO has the default icon).
     rexglue_switch_add_nro(renut
         NAME "Beautiful Katamari"
-        AUTHOR "katamari-nx (reNut renderer, banjo-nx)"
-        VERSION "0.1.0"
+        AUTHOR "ChanseyIsTheBest"
+        VERSION "1.0.0"
         ${RENUT_ICON_ARG})
 endif()
 

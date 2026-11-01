@@ -764,3 +764,22 @@ counters as the console's log); the user's call: not followed further.
 `tools/switch_shaders.ps1 -NoCentroid` builds rc9's centre-sampled set into `out/deko3d_shaders_nocentroid` and
 `app/out/renut_switch_nocentroid` (a GLSL package the runtime loads from `/switch/katamari_nx/deko3d_glsl.bin`).
 With it off the package and the SPIR-V cache are rc9's byte for byte; on, rc10b's.
+
+## 1.0.0, the PGO-instrumented build (2026-11-02)
+
+The user: "make this the icon", "the version number 1.0.0 and the author ChanseyIsTheBest", "make this build
+LTO+PGO instrumented for collecting PGO data", "turn off all logging besides crash logging".
+- NRO metadata (`app/CMakeLists.txt`): version 1.0.0, author ChanseyIsTheBest; the icon `tools/switch/icon/
+  katamari_icon.jpg` (the user's image, the cover art, 1024 x 1024 WebP cropped and scaled to a 256 x 256 JPEG): not
+  in git (`.gitignore`); without it the NRO has the default icon.
+- Instrumented build: `app/out/switch-pgo-gen`, `-DBANJO_PGO=generate -DBANJO_SWITCH_LTO=ON` (scratchpad
+  `build_pgo_gen.bat`): 22 minutes from scratch, NRO 100 MB, 219 objects in the `gcov_info` section (all in one LTRANS
+  partition). LTO is not needed to instrument (GCC counts before its interprocedural passes); the user asked for it,
+  and it makes the instrumented NRO faster to play. The streams go to `pgo/banjo_pgo_<N>.stream` next to the NRO
+  (`src/banjo_pgo.cpp`): every 2 minutes, at HOME, at exit. Merge them on this PC (`tools/pgo_merge.py <folder>`:
+  the streams name its profile folder), then the optimised build: `-DBANJO_PGO=use -DBANJO_SWITCH_LTO=ON` in a folder
+  of its own.
+- Only crash logging: `configs/renut_pgo.toml` (`tools/make_katamari_tomls.py`, PGO): `log_level = "off"`, the
+  samplers, the stall watchdog and the renderer's diagnostics off. With every level off the SDK makes no log file
+  (`sdk/src/core/logging.cpp`), and `deko3d.log` is not opened (`banjo_renut_deko3d.cpp`). Left: `rex_crash.log`
+  (the crash handler) and `rex_stderr.log` (the crash hooks: abort, std::terminate, Mesa).

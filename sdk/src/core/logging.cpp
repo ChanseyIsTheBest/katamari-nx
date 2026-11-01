@@ -580,6 +580,15 @@ void InitLogging(const LogConfig& config) {
                                           : std::filesystem::path(config.log_dir);
     resolved_path = NextSequentialLogPath(log_dir, config.app_name).string();
   }
+  // katamari-nx (2026-11-02, the user: "turn off all logging besides crash logging"): with every level off no file is
+  // made (an empty log a run, and the writer thread's buffer). rex_crash.log and the crash hooks' rex_stderr.log are
+  // written by the crash handler, not by this logger.
+  const bool every_level_off =
+      config.default_level == spdlog::level::off &&
+      std::all_of(config.category_levels.begin(), config.category_levels.end(),
+                  [](const auto& category) { return category.second == spdlog::level::off; });
+  if (every_level_off)
+    resolved_path.clear();
   if (!resolved_path.empty()) {
     const size_t max_size = static_cast<size_t>(REXCVAR_GET(log_max_file_size_mb)) * 1024 * 1024;
     const size_t max_files = static_cast<size_t>(REXCVAR_GET(log_max_files));
