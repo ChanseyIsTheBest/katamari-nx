@@ -584,3 +584,41 @@ Both are written up in `docs/codegen-crash-fixes.md` (with every earlier codegen
   nothing wrong.
 - Generator changes need `rexglue codegen --ignore-stamp`: its stamp covers the config and the image, not the
   generator.
+
+## rc8 (2026-11-01): the 24 captured shaders; where Beautiful Katamari's shaders come from
+
+The user's rc6 console run saved the 24 shaders it was missing (`sdmc:/switch/katamari_nx/shader_capture/`) and sent
+them. All 24 are valid containers whose names are their XXH3 (the hashes the log reported). Added to
+`out/renut_shader_dump` (153); the PC table regenerated (`renut_shader_cache_gen` of `app/out/pc`, after removing
+the generated `shader_cache.cpp`: its dependencies are the dump's files at configure time, so new captures do not
+rerun it), then `tools/switch_shaders.ps1`: 153 shaders, 153 compiled with uam (112 vertex, 41 pixel).
+
+**Why a scan of the game's files cannot find them (unlike the other ports' games).** The executable links the whole
+D3DX HLSL compiler (its preprocessor and parser messages, the intrinsic table) and the game compiles its shaders at
+run time: each material carries a feature key such as `MT0_00000000_OP9_GR9_NM9_RL9_TA0_LT1_SK0_VC0_VFn1c0t0_00000000`
+(material type, normal map, lighting, skinning, vertex colour, vertex format, ...), and when a stage loads the game
+compiles the HLSL library `npLib` (2006, uncompressed in `d02.dat`) with `#define`s from the key. The keys are inside
+the models, which are compressed. A static path would need (1) the decompressor, (2) every key, and (3) the game's
+own compiler output byte for byte (Renut looks shaders up by the hash of the compiled container).
+
+**The data layout found so far.**
+- The executable holds the game's file system: 31 category descriptors at 0x82AD5078 (20 bytes: name, record table,
+  alternate table, record count, state), e.g. Map (51 stage maps, `d02`), MonoMdl (572 object models, `d04`), Idv
+  (7,001, `d03`), Item (2,968, `d05`), Ouji, Effect, Xml, Sound, ... Records are 16 bytes: archive name pointer
+  (`d02.dat` ... `d05.dat`), flags in the top 3 bits and the uncompressed size in the low 29, offset, stored size.
+  Flags 0xC0 / 0xE0 are compressed, 0x20 / 0x00 stored.
+- Compressed files are "CPDB" blocks: magic, 1 (little endian), 0, uncompressed size (big endian), then a
+  bit-packed stream (2 KB aligned, about 3-5x). Not zlib / raw deflate / gzip at any offset 0-255, not LZX (libmspack
+  `lzxd`, windows 2^15-2^21, plain or 16-bit-swapped words, offsets 16-24). `tools/lzx_tool.c` (from worldkeflings-nx)
+  is the LZX test tool.
+- The loaders take a descriptor's record (`table + index * 16`) and the string at 0x82006034 (`game:\`) and call
+  0x82423688 / 0x82423C68 (queue: 0x82426588, 0x82426308, 0x82425xxx), which go on into Alchemy's resource code
+  (0x824A6xxx-0x824B3xxx). The decompressor itself is not identified yet; Ryujinx's GDB stub has software breakpoints
+  only (no watchpoints), and the CPU sampler's loading windows were dominated by waits.
+- The game state at `*(0x82B0B568)`: entering the practice room sets +964 to 16 and +966 to 1
+  (`katamari_diag_game_state`, a new diagnostic, off: `src/cpu/katamari_stage_diag.cpp`, a libnx thread on the Switch:
+  std::thread throws "Function not implemented" there). A stage warp would start from these two fields.
+
+Ryujinx frame rates of this round are not comparable: a `node` process on the PC used about nine cores during the
+runs (rc7's own NRO also fell to 14-37 fps in them). rc8 changes only the shader package and the off-by-default
+diagnostic.

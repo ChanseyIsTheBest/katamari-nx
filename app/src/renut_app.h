@@ -29,6 +29,9 @@
 #include "renut_engine/gpu/banjo_renut_capture.h"
 #endif
 #include "cpu/banjo_enhancements.h"
+namespace katamari::stage_diag {
+void Start();  // src/cpu/katamari_stage_diag.cpp
+}
 #include "native/nfsmw_nativo_captura.h"
 #if !REX_PLATFORM_SWITCH
 #include "profiler/nfsmw_perfil_pc.h"
@@ -185,6 +188,8 @@ public:
         renut::dlc::InstallPackages(runtime());
         // One log line with every enhancement and whether it is active (src/cpu/banjo_enhancements.h).
         banjo::LogEnhancements();
+        // katamari-nx (2026-11-01): katamari_diag_game_state (off): the stage fields of the game state, as they change.
+        katamari::stage_diag::Start();
         // PC: function-level CPU profile (banjo_pc_profile_s = N seconds per report; 0 = off; from futari-nx).
         banjo::pc_profiler::Start();
         // Switch: per-thread CPU accounting, the optional sampler and the stall watchdog.
