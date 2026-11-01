@@ -783,3 +783,48 @@ LTO+PGO instrumented for collecting PGO data", "turn off all logging besides cra
   samplers, the stall watchdog and the renderer's diagnostics off. With every level off the SDK makes no log file
   (`sdk/src/core/logging.cpp`), and `deko3d.log` is not opened (`banjo_renut_deko3d.cpp`). Left: `rex_crash.log`
   (the crash handler) and `rex_stderr.log` (the crash hooks: abort, std::terminate, Mesa).
+
+## 1.0.0, the final build and the installer (2026-11-02)
+
+**Settings (the user: only these in the toml, the rest hardcoded).** `app/katamari_switch_defaults.toml` is compiled in
+and applied first (`BuiltInConfig`, sa2-nx's design); `app/katamari_switch.toml` is written next to the NRO as
+`katamari.toml` when it is missing (`DefaultConfigFile`). It is not `renut.toml`: the full copy a test build left on the
+SD card would override every fixed setting. A key added to `katamari.toml` still overrides a fixed one, which the test
+runs use. The player's: `msaa_level`, `frame_cap`, `user_language`, `input_xbox_layout`, `input_joycon_sideways`,
+`input_joycon_sideways_stick`, `[input_p1]`, `[input_p2]`. `katamari_dlc_unlock_packs` is now a fixed false.
+
+**Language.** `XGetLanguage` answered English whatever `user_language` said; it is the game's only language query. Ryujinx
+with 2: Japanese title, save menu and hub labels, `opening_jp.wmv`. French (4) and Spanish (5): English text and
+`opening_us.wmv`, so the game has English and Japanese.
+
+**MSAA level.** `msaa_level` lowers the samples of every target the game makes with MSAA (`render/surfaces.cpp`, the
+portrait key's mechanism). Ryujinx at 4, 2 and 1: the hub and the presents menu whole, 60 fps. At 1 the presents menu's
+row 371 is uniform too (single-sample, no centroid needed there).
+
+**Frame cap.** `frame_cap` was defined and did nothing: `renut_engine/frameHooks.cpp`'s limiter is not built here (its
+hooks are N&B's). `renutFrameLimit` is in `katamari_keys.cpp`, called at the end of `D3DDevice_Swap_hook`: the game never
+calls Present (the first attempt, in the Present hook, never ran; the profiler's frame boundary there does not run
+either). With "30", Ryujinx holds 29.9-30.0 fps, 300 images in 600 refreshes, and the logos and menus keep their timing.
+A stage has not been checked under the cap.
+
+**PGO.** One console session of the instrumented NRO: 219 `.gcda`, largest arc count 1.3e9, kept in `pgo/`. Release folder
+`app/out/switch-pgo-use` (`tools/build_switch_release.bat`): about 25 minutes from scratch.
+
+**Shaders outside the NRO.** All 195 are in the player's files: 111 in `default.xex`, 84 in `d02.dat`-`d05.dat`
+(`tools/katamari_shader_files.py`: 57 records, the largest 1.9 MB, 116 ms to decode in JavaScript). The release NRO has the
+shader table without SPIR-V (`tools/renut_release_shaders.py`) and reads a version 1 `deko3d_glsl.bin` beside it into
+memory (`banjo_renut_deko3d.cpp` Open); banjo-nx's version 2 path, with the table in the package, is still there.
+
+**The installer** ([katamari-nx-installer](https://github.com/ChanseyIsTheBest/katamari-nx-installer), from
+futari-nx-installer's). What changed from futari's page: `lib/cpdb.js`; the containers by the manifest's records; the
+translator rebuilt from this tree (centroid sampling; `tools/renut_hlsl_frontend.cpp`); `scalecodes` and the qualifier in
+`PSIN_RE` in `lib/deko3d_glsl.js`; Futari's named constants out of `lib/early_alpha.js` (with them the page made early
+alpha copies of 7 pixel shaders the native tools leave alone). Result, `test/deko3d_node.mjs`: 123 of 195 identical to the
+native chain's, all 195 once SPIR-V's value numbers are renamed (the page's newer DXC). Package 6.9 MB, 40 s in Node. The
+zip of the whole game and the 16 DLC packages: 2.9 GB, 39 s. Ryujinx from a clean folder made of that zip: the first start
+writes `katamari.toml` and no log, installs the 16 packs; with the user's save the hub and the presents menu draw at 60 fps,
+49 shaders compiled at first use, 0 failed, 1.6 s in all that a draw waited for (on the PC; slower on the console).
+
+**The public repository.** A history audit (every blob outside third-party code) found one file of generated code:
+`app/src/renut_engine/fixes/mullhwucrash.cpp`, N&B's translated PowerPC, never built here. The public history is a rewrite
+without it, with the noreply author; the local repository keeps its own history (the file removed by a commit).
