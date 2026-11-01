@@ -61,6 +61,7 @@ void RexSwitchNeonProbe(void);
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <string_view>
 
 #if REX_PLATFORM_SWITCH
@@ -179,7 +180,16 @@ bool ReXApp::SetupEnvironment() {
   config_path_ = path_config.config_path;
   resolved_defaults_ = std::move(path_config);
 
-  // Load config FIRST so log cvars have final values
+  // Load config FIRST so log cvars have final values. The application's built-in defaults go first; the config
+  // file overrides them key by key. sa2-nx: without a config file, the application's default one is written first,
+  // so the player has a file to edit.
+  if (const std::string_view default_file = DefaultConfigFile();
+      !default_file.empty() && !config_path_.empty() && !std::filesystem::exists(config_path_)) {
+    std::ofstream out(config_path_, std::ios::binary);
+    out.write(default_file.data(), std::streamsize(default_file.size()));
+  }
+  if (const std::string_view built_in = BuiltInConfig(); !built_in.empty())
+    rex::cvar::LoadConfigString(built_in, "built-in defaults");
   if (std::filesystem::exists(config_path_))
     rex::cvar::LoadConfig(config_path_);
 #if REX_PLATFORM_SWITCH

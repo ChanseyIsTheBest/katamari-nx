@@ -579,13 +579,27 @@ if(REXGLUE_PLATFORM_SWITCH)
     # Link map: which object each function came from, for ranking the profiler's samples per function
     # (tools/switch-cpu-profile.py). It must come from the same build as the NRO that was profiled.
     target_link_options(renut PRIVATE "LINKER:-Map=${CMAKE_BINARY_DIR}/renut.map")
-    set(RENUT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
+    # katamari-nx (2026-11-02, the user: only these settings in the toml, the rest hardcoded; sa2-nx's design): the fixed
+    # settings compiled in (src/renut_app.h BuiltInConfig), and the player's katamari.toml, written next to the NRO when
+    # it is missing (DefaultConfigFile). KATAMARI_BUILTIN_CONFIG=OFF: test builds that read a full renut.toml.
+    option(KATAMARI_BUILTIN_CONFIG "Switch: the fixed settings compiled in, the player's options in katamari.toml" ON)
+    if(KATAMARI_BUILTIN_CONFIG)
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch_defaults.toml" KATAMARI_BUILTIN_TEXT)
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch.toml" KATAMARI_PLAYER_TEXT)
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/katamari_builtin_config.h.in"
+                       "${CMAKE_CURRENT_BINARY_DIR}/builtin_config/katamari_builtin_config.h" @ONLY)
+        target_include_directories(renut PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/builtin_config")
+        target_compile_definitions(renut PRIVATE KATAMARI_BUILTIN_CONFIG=1)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                     "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch_defaults.toml"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/katamari_switch.toml")
+    endif()
+    set(RENUT_ICON"${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/icon/katamari_icon.jpg")
     set(RENUT_ICON_ARG)
     if(EXISTS "${RENUT_ICON}")
         set(RENUT_ICON_ARG ICON "${RENUT_ICON}")
     endif()
-    # katamari-nx (2026-11-02, the user's request): version 1.0.0, author ChanseyIsTheBest, the user's icon (the cover
-    # art, kept out of git: tools/switch/icon/ is ignored; without it the NRO has the default icon).
+    # katamari-nx (2026-11-02, the user's request): version 1.0.0, author ChanseyIsTheBest, the user's icon (the cover art).
     rexglue_switch_add_nro(renut
         NAME "Beautiful Katamari"
         AUTHOR "ChanseyIsTheBest"

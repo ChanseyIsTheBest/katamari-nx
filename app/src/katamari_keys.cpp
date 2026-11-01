@@ -7,7 +7,14 @@
 #include <rex/cvar.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
+#include <thread>
+
+#include "profiler/profiler.h"
+#include "renut_engine/display_sync.h"
 
 // N&B's XAudio natives (its reverb and sample-rate converter at N&B's addresses).
 REXCVAR_DEFINE_BOOL(banjo_native_reverb, false, "Katamari/Not built", "N&B's native XAudio reverb (not in this port)")
@@ -26,8 +33,60 @@ REXCVAR_DEFINE_BOOL(banjo_native_xaudio_src_verify, false, "Katamari/Not built",
 // Katamari's MSAA is what the game asks for.
 REXCVAR_DEFINE_BOOL(disable_msaa, false, "Katamari/Graphics", "Draw the game's MSAA targets with one sample (not exact)");
 
-// renut_engine/frameHooks.cpp's frame cap, which Renut's present and display_sync read.
-REXCVAR_DEFINE_STRING(frame_cap, "Off", "Katamari/Performance", "Frame cap of Renut's present: Off, Display, 30, 60");
+// The frame cap (renut_engine/frameHooks.cpp's limiter, not built here because of its N&B hooks).
+REXCVAR_DEFINE_STRING(frame_cap, "Off", "Katamari/Performance",
+                      "Frame rate cap: Off (the game's own, uncapped as on the Xbox 360) or a number of frames a second")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+// katamari-nx (2026-11-02, the user's request: a 30 fps cap in katamari.toml, off by default): renutFrameLimit of
+// renut_engine/frameHooks.cpp, called at the end of the game's Swap (d3d/hooks/device.cpp). With the display's refresh
+// known (the Switch) a frame is released at a refresh plus the measured phase (renut_engine/display_sync.h), else on its
+// own timer; a late frame goes at once. Off, it returns at the first test and starts no thread.
+void renutFrameLimit() {
+  using clock = std::chrono::steady_clock;
+  static const int fps = [] {
+    const std::string &v = REXCVAR_GET(frame_cap);
+    return v.empty() || v == "Off" ? 0 : std::atoi(v.c_str());
+  }();
+  if (fps <= 0)
+    return;
+  banjo::display_sync::Start();
+  static clock::time_point next = clock::now();
+  static uint64_t previous_release = 0;
+  const clock::time_point wait_start = clock::now();
+  clock::time_point now = wait_start;
+  const auto frame = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(1.0 / fps));
+  constexpr auto kTail = std::chrono::microseconds(400);
+  const auto wait_until = [&](clock::time_point target) {
+    for (;;) {
+      now = clock::now();
+      if (now >= target)
+        break;
+      if (target - now > kTail)
+        std::this_thread::sleep_for(target - now - kTail);
+      else
+        std::this_thread::yield();
+    }
+  };
+  bool anchored = false;
+  const uint64_t release = banjo::display_sync::NextRelease(
+      uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count()), previous_release,
+      uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(frame).count()), &anchored);
+  if (release) {
+    previous_release = release;
+    next = clock::time_point(std::chrono::duration_cast<clock::duration>(std::chrono::nanoseconds(release)));
+    wait_until(next);
+    banjo::display_sync::NoteRelease(release, anchored);
+  } else {
+    previous_release = 0;
+    next += frame;
+    if (next <= now)
+      next = now;  // a slow frame: from the present, no burst to catch up
+    else
+      wait_until(next);
+  }
+  banjo::profiler::RecordLimiterWait(std::chrono::duration<double, std::milli>(clock::now() - wait_start).count());
+}
 
 // banjo-nx's PM4 renderer's D3D-level fast paths (me/banjo_d3d_clear.h, me/banjo_d3d_native.h, defined there because
 // banjo_me_hooks.cpp includes them): its hooks are N&B's, so off here (masseffect_renderer_native stays false anyway).

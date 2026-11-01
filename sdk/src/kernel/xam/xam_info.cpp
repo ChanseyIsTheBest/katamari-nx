@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <rex/cvar.h>
 #include <rex/kernel/xam/module.h>
 #include <rex/kernel/xam/private.h>
 #include <rex/logging.h>
@@ -27,6 +28,8 @@
 
 #include <fmt/format.h>
 #include <fmt/xchar.h>
+
+REXCVAR_DECLARE(uint32_t, user_language);  // xam_user.cpp
 
 namespace rex {
 namespace kernel {
@@ -183,19 +186,9 @@ u32 XGetGameRegion_entry() {
 }
 
 u32 XGetLanguage_entry() {
-  auto desired_language = XLanguage::kEnglish;
-
-  // Switch the language based on game region.
-  // TODO(benvanik): pull from xex header.
-  uint32_t game_region = XEX_REGION_NTSCU;
-  if (game_region & XEX_REGION_NTSCU) {
-    desired_language = XLanguage::kEnglish;
-  } else if (game_region & XEX_REGION_NTSCJ) {
-    desired_language = XLanguage::kJapanese;
-  }
-  // Add more overrides?
-
-  return uint32_t(desired_language);
+  // katamari-nx (2026-11-02): the player's language (user_language, as the console's system setting), which this call
+  // used to ignore: it always answered English, and this is the only language query Beautiful Katamari makes.
+  return REXCVAR_GET(user_language);
 }
 
 u32 XamGetCurrentTitleId_entry() {

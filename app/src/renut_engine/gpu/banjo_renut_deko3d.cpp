@@ -64,24 +64,48 @@ Package g_package;
 Package &Open() {
   std::call_once(g_package.once, [] {
     Package &p = g_package;
-    if (&g_deko3dGlslPackageSize == nullptr || g_deko3dGlslPackageSize < sizeof(PackageHeader)) {
-      REXLOG_ERROR("[deko3d] this NRO has no GLSL package (tools/deko3d_shader_package.py): no game shaders");
+    // katamari-nx (2026-11-02, futari-nx's design): deko3d_glsl.bin beside the NRO first, read whole: a release NRO
+    // carries no game shader (BANJO_RENUT_RELEASE_SHADERS) and its shader table is built in, so this file is version 1,
+    // which the web installer makes from the player's game files. Held in memory: no card access while the game runs.
+    static std::vector<uint8_t> beside;
+    const uint8_t *base = nullptr;
+    size_t size = 0;
+    if (FILE *f = std::fopen(NextToExecutable("deko3d_glsl.bin").string().c_str(), "rb")) {
+      PackageHeader h{};
+      std::fseek(f, 0, SEEK_END);
+      const long length = std::ftell(f);
+      std::fseek(f, 0, SEEK_SET);
+      if (length >= long(sizeof(h)) && std::fread(&h, sizeof(h), 1, f) == 1 && h.version == 1) {
+        beside.resize(size_t(length));
+        std::fseek(f, 0, SEEK_SET);
+        if (std::fread(beside.data(), 1, beside.size(), f) == beside.size()) {
+          base = beside.data();
+          size = beside.size();
+        }
+      }
+      std::fclose(f);
+    }
+    if (!base && &g_deko3dGlslPackageSize != nullptr && g_deko3dGlslPackageSize >= sizeof(PackageHeader)) {
+      base = g_deko3dGlslPackage;
+      size = g_deko3dGlslPackageSize;
+    }
+    if (!base) {
+      REXLOG_ERROR("[deko3d] no GLSL package (deko3d_glsl.bin beside the NRO, or built in): no game shaders");
       return;
     }
-    p.header = reinterpret_cast<const PackageHeader *>(g_deko3dGlslPackage);
+    p.header = reinterpret_cast<const PackageHeader *>(base);
     if (std::memcmp(p.header->magic, "BDKG", 4) != 0 || p.header->version != 1) {
       REXLOG_ERROR("[deko3d] the GLSL package is not one this build reads");
       return;
     }
-    p.entries = reinterpret_cast<const PackageEntry *>(g_deko3dGlslPackage + p.header->tableOffset);
-    p.data = g_deko3dGlslPackage + p.header->dataOffset;
+    p.entries = reinterpret_cast<const PackageEntry *>(base + p.header->tableOffset);
+    p.data = base + p.header->dataOffset;
     // banjo-nx (2026-10-22): no dictionary in a distribution build's package (deko3d_shader_package.py --raw): its
     // frames are raw blocks, which the installer's page reads out of the NRO.
-    p.dict = p.header->dictSize ? ZSTD_createDDict(g_deko3dGlslPackage + sizeof(PackageHeader), p.header->dictSize)
-                                : nullptr;
+    p.dict = p.header->dictSize ? ZSTD_createDDict(base + sizeof(PackageHeader), p.header->dictSize) : nullptr;
     p.dctx = ZSTD_createDCtx();
     p.ok = (p.dict || !p.header->dictSize) && p.dctx;
-    REXLOG_INFO("[deko3d] GLSL package: {} shaders, {} KB in the NRO", p.header->count, g_deko3dGlslPackageSize >> 10);
+    REXLOG_INFO("[deko3d] GLSL package: {} shaders, {} KB", p.header->count, size >> 10);
   });
   return g_package;
 }
@@ -169,8 +193,13 @@ InstalledPackage &OpenInstalled() {
       p.inputs.clear();
       p.literals.clear();
     };
-    if (std::fseek(f, 0, SEEK_SET) != 0 || std::fread(&h, sizeof(h), 1, f) != 1 || std::memcmp(h.magic, "BDKG", 4) != 0 ||
-        h.version != 2)
+    if (std::fseek(f, 0, SEEK_SET) != 0 || std::fread(&h, sizeof(h), 1, f) != 1 || std::memcmp(h.magic, "BDKG", 4) != 0)
+      return fail("not a package");
+    if (h.version == 1) {  // katamari-nx (2026-11-02): the shaders alone, the table in the NRO: Open() reads it
+      std::fclose(f);
+      return;
+    }
+    if (h.version != 2)
       return fail("not a version 2 package");
     if (h.dictSize && (32ull + h.dictSize > h.tableOffset || h.dictSize > (4u << 20)))
       return fail("its dictionary is not sound");

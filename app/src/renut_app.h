@@ -29,6 +29,9 @@
 #include "renut_engine/gpu/banjo_renut_capture.h"
 #endif
 #include "cpu/banjo_enhancements.h"
+#if defined(KATAMARI_BUILTIN_CONFIG)
+#include "katamari_builtin_config.h"  // generated from app/katamari_switch_defaults.toml and katamari_switch.toml (CMake)
+#endif
 namespace katamari::stage_diag {
 void Start();  // src/cpu/katamari_stage_diag.cpp
 }
@@ -68,6 +71,24 @@ public:
         rex::ui::WindowedAppContext& ctx) {
         // katamari-nx: the app keeps banjo-nx's name, so its config is renut.toml (next to the NRO / exe).
         return std::unique_ptr<RenutApp>(new RenutApp(ctx, "renut", PPCImageConfig));
+    }
+
+    // katamari-nx (2026-11-02, sa2-nx's design): the Switch build's fixed settings, compiled in and applied before
+    // katamari.toml, which holds only the player's options (a key added there still overrides these: test runs).
+    std::string_view BuiltInConfig() const override {
+#if defined(KATAMARI_BUILTIN_CONFIG)
+        return kKatamariBuiltInConfig;
+#else
+        return {};
+#endif
+    }
+    // Without a katamari.toml next to the NRO, the player's default one is written there.
+    std::string_view DefaultConfigFile() const override {
+#if defined(KATAMARI_BUILTIN_CONFIG)
+        return kKatamariPlayerConfig;
+#else
+        return {};
+#endif
     }
 
 
@@ -243,6 +264,11 @@ public:
     // A game_root folder next to the executable is used when no path was given.
     // On the Switch that is sdmc:/switch/katamari-nx/game_root (the extracted disc).
     void OnConfigurePaths(rex::PathConfig& paths) override {
+#if defined(KATAMARI_BUILTIN_CONFIG)
+        // The player's settings file. Not renut.toml: the test builds' full one, left on an SD card, would override
+        // every built-in setting.
+        paths.config_path = rex::filesystem::GetExecutableFolder() / "katamari.toml";
+#endif
         if (paths.game_data_root.empty()) {
             const auto folder = rex::filesystem::GetExecutableFolder();
             std::error_code ec;

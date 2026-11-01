@@ -136,6 +136,12 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   /// fonts via AddFontFromMemoryTTF() or similar.
   virtual void OnConfigureFonts(ImFontAtlas* atlas) { (void)atlas; }
 
+  /// sa2-nx: TOML applied before the config file (<name>.toml), as defaults it overrides key by key. Empty = none.
+  virtual std::string_view BuiltInConfig() const { return {}; }
+
+  /// sa2-nx: written as the config file (<name>.toml) when there is none, so the player has one to edit. Empty = none.
+  virtual std::string_view DefaultConfigFile() const { return {}; }
+
   /// Called from the ImGui drawer's Initialize() after the SDK defaults have
   /// been applied. `imgui_style` is the live global ImGuiStyle: patch fields,
   /// or call ImGui::StyleColorsDark(&imgui_style) first to start from a clean

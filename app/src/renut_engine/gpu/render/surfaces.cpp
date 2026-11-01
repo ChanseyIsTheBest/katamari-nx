@@ -245,6 +245,10 @@ bool BuildTarget(HostSurface &surface, const d3d::SurfaceDesc &desc, uint32_t mi
                 surface.width, surface.height, surface.depth ? "depth" : "colour", u32(surface.samples), want);
     surface.samples = want == 2 ? plume::RenderSampleCount::COUNT_2 : plume::RenderSampleCount::COUNT_1;
   }
+  // katamari-nx (2026-11-02, msaa_level, the player's setting): the same for every target the game makes with MSAA.
+  // 4 is the game's own (nothing changes); it only lowers a count.
+  if (const uint32_t want = banjo::renut_gpu::MsaaLevel(); uint32_t(surface.samples) > want)
+    surface.samples = want == 2 ? plume::RenderSampleCount::COUNT_2 : plume::RenderSampleCount::COUNT_1;
   if (surface.depth) {
     surface.format = DepthTargetFormat(surface.format_word);  // banjo-nx (2026-10-19, banjo_deko3d_depth24)
     if (banjo::renut_gpu::Depth24On()) {

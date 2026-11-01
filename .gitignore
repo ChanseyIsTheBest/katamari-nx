@@ -41,6 +41,7 @@ tools/difftest/dp.*
 tools/difftest/shtool/obj/
 tools/difftest/shtool/bin/
 # 2026-10-21: the PGO profile (.gcda files merged from an instrumented run; tools/pgo_merge.py, docs/pgo-lto.md)
-pgo/
-# 2026-11-02: the NRO's icon (the user's, the game's cover art: not the project's to publish)
-tools/switch/icon/
+pgo/*
+*.stream
+# ...except the PGO profile of the released NRO (counts of which code ran, no game code or data)
+!pgo/*.gcda

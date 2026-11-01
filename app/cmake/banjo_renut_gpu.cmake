@@ -55,11 +55,21 @@ if(REXGLUE_PLATFORM_SWITCH)
             message(FATAL_ERROR "No ${${_banjo_tool}}: run tools/deko3d_build_tools.sh first")
         endif()
     endforeach()
+    # katamari-nx (2026-11-02, futari-nx's design): the release build (tools/renut_release_shaders.py,
+    # app/out/renut_switch_release): no translated game shader in the NRO and the shader table without SPIR-V; the game's
+    # shaders come from deko3d_glsl.bin beside the NRO, which the web installer makes from the player's files. OFF (the
+    # everyday build): every translated shader built in (app/out/renut_switch).
+    option(BANJO_RENUT_RELEASE_SHADERS "Switch: no translated game shader in the NRO (deko3d_glsl.bin beside it)" OFF)
+    if(BANJO_RENUT_RELEASE_SHADERS)
+        set(_banjo_renut_shaders "${CMAKE_SOURCE_DIR}/out/renut_switch_release")
+    else()
+        set(_banjo_renut_shaders "${CMAKE_SOURCE_DIR}/out/renut_switch")
+    endif()
     # The game shaders' GLSL for deko3d (tools/deko3d_shader_package.py), embedded next to the SPIR-V cache.
-    set(BANJO_DEKO3D_GLSL_CPP "${CMAKE_SOURCE_DIR}/out/renut_switch/deko3d_glsl_switch.cpp" CACHE FILEPATH
-        "The deko3d GLSL package's source (tools/deko3d_shader_package.py)")
-    set(BANJO_RENUT_SHADER_CACHE_CPP "${CMAKE_SOURCE_DIR}/out/renut_switch/shader_cache_switch.cpp" CACHE FILEPATH
-        "Renut's shader cache for the Switch build (from a PC build: tools/renut_switch_shader_cache.py)")
+    set(BANJO_DEKO3D_GLSL_CPP "${_banjo_renut_shaders}/deko3d_glsl_switch.cpp" CACHE FILEPATH
+        "The deko3d GLSL package's source (tools/deko3d_shader_package.py)" FORCE)
+    set(BANJO_RENUT_SHADER_CACHE_CPP "${_banjo_renut_shaders}/shader_cache_switch.cpp" CACHE FILEPATH
+        "Renut's shader cache for the Switch build (from a PC build: tools/renut_switch_shader_cache.py)" FORCE)
     function(banjo_renut_shader_cache_override TARGET)
         if(NOT EXISTS "${BANJO_RENUT_SHADER_CACHE_CPP}")
             message(FATAL_ERROR "No ${BANJO_RENUT_SHADER_CACHE_CPP}: build the PC tree first, then run "
@@ -93,6 +103,8 @@ if(REXGLUE_PLATFORM_SWITCH)
     if(EXISTS "${BANJO_DEKO3D_GLSL_CPP}")
         target_sources(banjo_renut_gpu PRIVATE "${BANJO_DEKO3D_GLSL_CPP}")
         set_source_files_properties("${BANJO_DEKO3D_GLSL_CPP}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    elseif(BANJO_RENUT_RELEASE_SHADERS)
+        message(STATUS "banjo: no GLSL package in the NRO (BANJO_RENUT_RELEASE_SHADERS): deko3d_glsl.bin beside it")
     else()
         message(WARNING "No ${BANJO_DEKO3D_GLSL_CPP}: renut_gpu_backend = deko3d will have no game shaders "
                         "(tools/deko3d_shader_package.py)")

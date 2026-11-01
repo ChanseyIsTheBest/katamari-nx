@@ -309,6 +309,8 @@ uint32_t FurShellPercent();
 // game's, 1 = none, 2 = 2x).
 uint32_t PortraitFurShellPercent();
 uint32_t PortraitMsaaSamples();
+// msaa_level (2026-11-02, katamari-nx, the player's setting): the most samples any target gets: 4 (the game's), 2 or 1.
+uint32_t MsaaLevel();
 void CountFurShell(bool drawn);
 // banjo-nx (2026-10-23): banjo_renut_chain_reuse's answer for one draw (what: 0 targets, 1 textures, 2 viewport,
 // 3 pipeline key, 4 pipeline), for the "[renut] chain reuse" line.

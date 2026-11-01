@@ -225,6 +225,10 @@ REXCVAR_DEFINE_INT32(banjo_renut_portrait_fur_shells_percent, 100, "Banjo/Enhanc
                      "targets of 128 x 128 or less (the dialogue portrait, 96 x 96): 50 draws every other shell (11 of "
                      "21, the first always). 100: the same share as the rest of the fur")
     .range(25, 100);
+REXCVAR_DEFINE_INT32(msaa_level, 4, "Katamari/Graphics",
+                     "Samples per pixel of the game's MSAA targets: 4 (the game's own), 2 or 1 (off). Fewer: rougher "
+                     "edges, less GPU work")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_INT32(banjo_renut_portrait_msaa_samples, 0, "Banjo/Enhancements",
                      "NOT exact, the user's call (2026-10-21): the samples of the colour and depth targets of 128 x 128 "
                      "or less that the game makes with MSAA (the dialogue portrait's 96 x 96 box, 4x). 0 as the game; 2: "
@@ -1416,6 +1420,10 @@ uint32_t PortraitFurShellEvery() { return uint32_t(REXCVAR_GET(banjo_renut_portr
 uint32_t FurShellPercent() { return uint32_t(REXCVAR_GET(banjo_renut_fur_shells_percent)); }
 uint32_t PortraitFurShellPercent() { return uint32_t(REXCVAR_GET(banjo_renut_portrait_fur_shells_percent)); }
 uint32_t PortraitMsaaSamples() { return uint32_t(REXCVAR_GET(banjo_renut_portrait_msaa_samples)); }
+uint32_t MsaaLevel() {
+  const int32_t level = REXCVAR_GET(msaa_level);
+  return level >= 4 ? 4u : level >= 2 ? 2u : 1u;
+}
 void CountFurShell(bool drawn) { Bump(g_fur_shells[drawn ? 0 : 1], 1); }
 void CountChainReuseN(const uint64_t counts[5][2]) {
   for (int i = 0; i < 5; ++i) {

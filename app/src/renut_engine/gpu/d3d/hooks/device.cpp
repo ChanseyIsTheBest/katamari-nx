@@ -59,6 +59,7 @@
 
 // banjo-nx (2026-10-20, from sa2-nx): the SDK's Switch core layout (sdk/src/system/xthread.cpp).
 extern "C" uint32_t RexSetGuestThreadCoreLayout(int main_core, uint32_t others_mask, int others_preferred);
+void renutFrameLimit();  // katamari_keys.cpp: the player's frame_cap
 
 // banjo-nx (2026-10-20, from sa2-nx's sa2_renut_core_layout): see D3DDevice_Swap_hook.
 REXCVAR_DEFINE_BOOL(banjo_renut_core_layout, false, "Banjo/Enhancements",
@@ -946,6 +947,7 @@ void D3DDevice_Swap_hook(u32 device_va, u32 front_buffer, u32 /*parameters*/) {
     native::RewindRing(native::DeviceAt(device_va));
     native::ResetAllState(native::DeviceAt(device_va));
   }
+  renutFrameLimit();  // katamari-nx: the player's frame_cap; the game's frames end here (it never calls Present)
 }
 
 // void D3DDevice_InsertCallback(D3DDevice*, D3DCALLBACKTYPE, D3DCALLBACK pCallback,

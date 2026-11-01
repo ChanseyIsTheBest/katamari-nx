@@ -642,6 +642,16 @@ std::vector<std::string> Init(int argc, char** argv) {
   return positional;
 }
 
+void LoadConfigString(std::string_view toml_text, std::string_view origin) {
+  try {
+    auto config = toml::parse(toml_text, origin);
+    ApplyTomlTable(config, "");
+    REXLOG_DEBUG("Loaded config from {}", origin);
+  } catch (const toml::parse_error& err) {
+    REXLOG_ERROR("Failed to parse config {}: {}", origin, err.what());
+  }
+}
+
 void LoadConfig(const std::filesystem::path& config_path) {
   if (!std::filesystem::exists(config_path)) {
     REXLOG_DEBUG("Config file not found: {}", config_path.string());
