@@ -791,7 +791,7 @@ and applied first (`BuiltInConfig`, sa2-nx's design); `app/katamari_switch.toml`
 `katamari.toml` when it is missing (`DefaultConfigFile`). It is not `renut.toml`: the full copy a test build left on the
 SD card would override every fixed setting. A key added to `katamari.toml` still overrides a fixed one, which the test
 runs use. The player's: `msaa_level`, `frame_cap`, `user_language`, `input_xbox_layout`, `input_joycon_sideways`,
-`input_joycon_sideways_stick`, `[input_p1]`, `[input_p2]`. `katamari_dlc_unlock_packs` is now a fixed false.
+`input_joycon_sideways_stick`, `katamari_dlc_unlock_packs` (false: the user asked for it back in the toml), `[input_p1]`, `[input_p2]`.
 
 **Language.** `XGetLanguage` answered English whatever `user_language` said; it is the game's only language query. Ryujinx
 with 2: Japanese title, save menu and hub labels, `opening_jp.wmv`. French (4) and Spanish (5): English text and

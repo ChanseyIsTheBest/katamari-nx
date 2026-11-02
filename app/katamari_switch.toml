@@ -11,6 +11,10 @@ frame_cap = "Off"
 # Language: 1 = English, 2 = Japanese.
 user_language = 1
 
+# The DLC packs that only unlock what the game itself unlocks (Accessory Sets A-D, Character Sets A-D, Special Accessory).
+# false keeps them from the game; true loads them too. The stage packs always load.
+katamari_dlc_unlock_packs = false
+
 # Face buttons by position, as on an Xbox pad (bottom = A). false = by letter.
 input_xbox_layout = true
 

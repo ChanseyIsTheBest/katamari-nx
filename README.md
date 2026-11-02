@@ -95,6 +95,7 @@ are the triggers). **L + R + ZR** opens the system's controller screen to connec
 | `msaa_level` | Samples per pixel of the game's edge smoothing: `4` (the game's own, default), `2` or `1` (off). Fewer gives rougher edges and less GPU work |
 | `frame_cap` | Frame rate cap: `"Off"` (the game's own, uncapped as on the Xbox 360, default) or `"30"` |
 | `user_language` | The game's language: `1` English (default), `2` Japanese |
+| `katamari_dlc_unlock_packs` | Also load the DLC packs that only unlock what the game itself unlocks: Accessory Sets A-D, Character Sets A-D, Special Accessory (`false`, default). The stage packs always load |
 | `input_xbox_layout` | Face buttons by position (`true`, default) or by letter (`false`) |
 | `input_joycon_sideways` | Single Joy-Cons held sideways, one per player (`true`, default) |
 | `input_joycon_sideways_stick` | With it, a single Joy-Con's stick turned for the sideways grip (`true`, default) |
