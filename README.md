@@ -139,6 +139,7 @@ functions on the PC, call by call: the measurements are in [docs/katamari-notes.
 | --- | --- |
 | [docs/building.md](docs/building.md) | How to build the PC test build, the NRO and the shader files |
 | [docs/katamari-notes.md](docs/katamari-notes.md) | The port step by step: findings in the game's code, every optimisation and how it was checked |
+| [docs/optimising-functions.md](docs/optimising-functions.md) | How the game's functions are made faster: machine copies of as many as possible, hand-written ones only from console profiles |
 | [docs/codegen-crash-fixes.md](docs/codegen-crash-fixes.md) | The code generation crashes found and how each was fixed |
 | [docs/progress-log.md](docs/progress-log.md) | The work in order |
 

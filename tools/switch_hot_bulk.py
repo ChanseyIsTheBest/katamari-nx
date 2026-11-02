@@ -108,6 +108,7 @@ def main():
     ap.add_argument('--top', type=int, default=30)
     ap.add_argument('--threads', type=int, default=6, help='threads shown (the busiest)')
     ap.add_argument('--write', help='write the bulk list here (localize_native.py --bulk)')
+    ap.add_argument('--merge', action='store_true', help='with --write: keep what the list has and add to it')
     ap.add_argument('--min-samples', type=float, default=3)
     ap.add_argument('--tiny', type=int, default=12, help='leaves of at most this many guest instructions stay out')
     a = ap.parse_args()
@@ -184,10 +185,20 @@ def main():
              f'# (every function still in generated code with at least {a.min_samples:g} samples, all threads; tiny leaves of',
              f'# {a.tiny} instructions or fewer, refused forms and app-mentioned addresses left out). Edit by hand freely: a',
              '# line is "<address> <what>".', '']
+    # katamari-nx (2026-11-02): --merge keeps the list's own lines and adds to them. A profile lists only what its build
+    # still ran as generated code, so a function a build had already copied is not among its rows: without --merge,
+    # remaking the list from later profiles drops it.
+    kept = []
+    if a.merge and os.path.isfile(a.write):
+        kept = open(a.write, encoding='utf-8').read().split('\n')
+        have = {m.group(1).upper() for l in kept for m in [re.match(r'\s*([0-9A-Fa-f]{8})\b', l)] if m}
+        rows = [r for r in rows if r[0][4:].upper() not in have]
+        lines = [l for l in kept if l.strip()]
     for sub, n, ins, calls in rows:
         lines.append(f'{sub[4:]} {n} console samples, {ins} instructions, {calls} direct callees')
     open(a.write, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
-    print(f'{len(rows)} functions written to {a.write}; left out: ' + ', '.join(f'{k} {v}' for k, v in left.most_common()))
+    print(f'{len(rows)} functions {"added to" if a.merge else "written to"} {a.write}; left out: ' +
+          ', '.join(f'{k} {v}' for k, v in left.most_common()))
 
 
 if __name__ == '__main__':
