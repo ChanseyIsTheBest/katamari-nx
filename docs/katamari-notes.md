@@ -793,6 +793,13 @@ SD card would override every fixed setting. A key added to `katamari.toml` still
 runs use. The player's: `msaa_level`, `frame_cap`, `user_language`, `input_xbox_layout`, `input_joycon_sideways`,
 `input_joycon_sideways_stick`, `katamari_dlc_unlock_packs` (false: the user asked for it back in the toml), `[input_p1]`, `[input_p2]`.
 
+**The package tools (2026-11-03, found by kameo-nx).** `dist/switch/README.txt`, the tomls' headers,
+`tools/package_switch.ps1` and `tools/run_ryujinx_rdc.ps1` still named `renut.toml` after this change. A built-in build
+ignores that file: a tester swapping one in changes nothing and gets no log. They now name `katamari.toml`, and the
+package script takes the name from the build's `CMakeCache.txt`. 1.0.0 was not affected: its package carries no toml and
+its README names `katamari.toml`. Key by key, the built-in settings differ from `renut.toml` and `renut_play.toml` in 9
+keys only: logs, profiler and diagnostics, all off in the built-in settings.
+
 **Language.** `XGetLanguage` answered English whatever `user_language` said; it is the game's only language query. Ryujinx
 with 2: Japanese title, save menu and hub labels, `opening_jp.wmv`. French (4) and Spanish (5): English text and
 `opening_us.wmv`, so the game has English and Japanese.

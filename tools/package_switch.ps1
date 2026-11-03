@@ -1,7 +1,9 @@
 # katamari-nx: the Switch package (the request's step 7), as banjo-nx's builds/ folders:
 #   builds/<date>_<time>_<name>/
-#     COPY_TO_SD_switch_katamari-nx/   katamari-nx.nro, renut.toml (shipped), renut_play.toml, renut_ab.toml, configs/,
-#                                      deko3d_shaders.bin (the prebuilt DKSH cache), game_root/ (your game files)
+#     COPY_TO_SD_switch_katamari-nx/   katamari-nx.nro, katamari.toml (dist's renut.toml; named renut.toml in a
+#                                      KATAMARI_BUILTIN_CONFIG=OFF build), configs/ (renut.toml, renut_play.toml,
+#                                      renut_ab.toml and the rest), deko3d_shaders.bin (the prebuilt DKSH cache),
+#                                      game_root/ (your game files)
 #     COPY_TO_SD_ROOT/atmosphere/contents/05D6EA1333487100/exefs/main.npdm   (the four-core forwarder NPDM; only with
 #                                      -FourCore since rc6: the user runs on three cores)
 #     katamari-nx.elf                  the unstripped ELF of this NRO (profiles map to it)
@@ -28,7 +30,10 @@ $sd = Join-Path $out "COPY_TO_SD_switch_katamari-nx"
 New-Item -ItemType Directory -Force $sd, (Join-Path $sd "configs"), (Join-Path $sd "game_root") | Out-Null
 Copy-Item $nro (Join-Path $sd "katamari-nx.nro")
 $dist = Join-Path $root "dist\switch\katamari-nx"
-Copy-Item (Join-Path $dist "renut.toml"), (Join-Path $dist "renut_play.toml"), (Join-Path $dist "renut_ab.toml") $sd
+# The one toml the NRO reads (src/renut_app.h, OnConfigurePaths): under any other name it does nothing on the console.
+$builtin = Select-String -Path (Join-Path $b "CMakeCache.txt") -Pattern "^KATAMARI_BUILTIN_CONFIG:BOOL=ON" -Quiet
+Copy-Item (Join-Path $dist "renut.toml") (Join-Path $sd $(if ($builtin) { "katamari.toml" } else { "renut.toml" }))
+Copy-Item (Join-Path $dist "renut.toml"), (Join-Path $dist "renut_play.toml"), (Join-Path $dist "renut_ab.toml") (Join-Path $sd "configs")
 Copy-Item (Join-Path $dist "configs\*.toml") (Join-Path $sd "configs")
 $cache = Join-Path $root "out\deko3d_shaders\deko3d_shaders.bin"
 if (Test-Path $cache) { Copy-Item $cache $sd }

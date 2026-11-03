@@ -10,6 +10,9 @@
                    Switch) as the control.
   configs/*.toml   the picture-changing options, each one key away from renut.toml, for the user to decide on.
 
+The NRO reads one toml: katamari.toml (KATAMARI_BUILTIN_CONFIG on, the default) or renut.toml (off). These do something
+only under that name: tools/package_switch.ps1 names the package's copy.
+
   python tools/make_katamari_tomls.py --banjo <banjo-nx renut.toml> --out dist/switch/katamari-nx
 """
 import argparse
@@ -17,9 +20,10 @@ import os
 import re
 
 HEADER = """# katamari-nx (Beautiful Katamari on the Switch, Renut's renderer on deko3d): {what}
-# Made by tools/make_katamari_tomls.py from banjo-nx's shipped renut.toml (2026-10-29). Copy to
-# sdmc:/switch/katamari-nx/renut.toml. Credits: reNut's renderer (masterspike52, reuse permitted), banjo-nx, sa2-nx,
-# NetherSX2_nx (four-core layout), battd_nx (the GPU arena), bejeweled3-nx and the zuma ports (hot functions).
+# Made by tools/make_katamari_tomls.py from banjo-nx's shipped renut.toml (2026-10-29). Copy over katamari.toml next to
+# the NRO, the only toml it reads (renut.toml with KATAMARI_BUILTIN_CONFIG off). Credits: reNut's renderer (masterspike52,
+# reuse permitted), banjo-nx, sa2-nx, NetherSX2_nx (four-core layout), battd_nx (the GPU arena), bejeweled3-nx and the zuma
+# ports (hot functions).
 """
 
 # Keys set for Beautiful Katamari (the rest as banjo-nx ships them).
@@ -94,7 +98,7 @@ PGO = {'log_level': '"off"', 'switch_profile_stacks': 'false', 'banjo_cpu_profil
 CONFIGS = {
     'renut_verify.toml': (VERIFY, 'every Renut verify mode on (emulator / test runs: slow; the log\'s verify lines '
                                   'must count 0 differences)'),
-    'renut_pgo.toml': (PGO, 'the shipped settings with only the crash logs (the PGO build\'s renut.toml: no log, no '
+    'renut_pgo.toml': (PGO, 'the shipped settings with only the crash logs (a PGO build\'s toml: no log, no '
                             'profilers, no diagnostics)'),
     # renut_nomsaa.toml left out (2026-10-30): disable_msaa acts through banjo-nx's mid-asm hooks at N&B's render-target
     # creation (renut_engine/hooks.cpp, not built here); in this port the key changes nothing (the emu3 run still
@@ -134,7 +138,7 @@ def main():
     shipped = apply(base, SHIPPED)
     os.makedirs(os.path.join(a.out, 'configs'), exist_ok=True)
     outs = {
-        'renut.toml': (shipped, 'the shipped settings (720 lines handheld, 1080 docked; diagnostics and logs on)'),
+        'renut.toml': (shipped, 'the built-in settings with logs, profiler and diagnostics on (720 lines handheld, 1080 docked)'),
         'renut_play.toml': (apply(shipped, PLAY), 'renut.toml with the render-thread diagnostics off, for playing'),
         'renut_ab.toml': (apply(shipped, AB), 'renut.toml with an in-run A/B list, 30 s halves, target 1 as the '
                                               'control (a Vulkan-only key: nothing on the Switch)'),

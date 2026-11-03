@@ -69,7 +69,7 @@ public:
 
     static std::unique_ptr<rex::ui::WindowedApp> Create(
         rex::ui::WindowedAppContext& ctx) {
-        // katamari-nx: the app keeps banjo-nx's name, so its config is renut.toml (next to the NRO / exe).
+        // katamari-nx: banjo-nx's name, so its config is renut.toml (the built-in config's build: OnConfigurePaths).
         return std::unique_ptr<RenutApp>(new RenutApp(ctx, "renut", PPCImageConfig));
     }
 

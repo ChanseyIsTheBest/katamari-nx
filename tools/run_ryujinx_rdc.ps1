@@ -17,7 +17,7 @@ if (Get-Process -Name Ryujinx -ErrorAction SilentlyContinue) { Write-Output "a R
 $os = Get-CimInstance Win32_OperatingSystem
 $freeCommit = $os.FreeVirtualMemory / 1MB
 if ($freeCommit -lt $MinCommitGB) { Write-Output ("free commit memory {0:N1} GB < {1} GB: not starting" -f $freeCommit, $MinCommitGB); exit 3 }
-if ($Toml) { Copy-Item $Toml (Join-Path $sd "renut.toml") -Force }
+if ($Toml) { Copy-Item $Toml (Join-Path $sd "katamari.toml") -Force }
 New-Item -ItemType Directory -Force $out | Out-Null
 $logs = Join-Path $sd "logs"
 if (Test-Path $logs) { Remove-Item -Recurse -Force $logs }

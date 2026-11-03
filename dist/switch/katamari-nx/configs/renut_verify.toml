@@ -1,7 +1,8 @@
 # katamari-nx (Beautiful Katamari on the Switch, Renut's renderer on deko3d): every Renut verify mode on (emulator / test runs: slow; the log's verify lines must count 0 differences)
-# Made by tools/make_katamari_tomls.py from banjo-nx's shipped renut.toml (2026-10-29). Copy to
-# sdmc:/switch/katamari-nx/renut.toml. Credits: reNut's renderer (masterspike52, reuse permitted), banjo-nx, sa2-nx,
-# NetherSX2_nx (four-core layout), battd_nx (the GPU arena), bejeweled3-nx and the zuma ports (hot functions).
+# Made by tools/make_katamari_tomls.py from banjo-nx's shipped renut.toml (2026-10-29). Copy over katamari.toml next to
+# the NRO, the only toml it reads (renut.toml with KATAMARI_BUILTIN_CONFIG off). Credits: reNut's renderer (masterspike52,
+# reuse permitted), banjo-nx, sa2-nx, NetherSX2_nx (four-core layout), battd_nx (the GPU arena), bejeweled3-nx and the zuma
+# ports (hot functions).
 # banjo-nx test config (Switch). Lines are cvars.
 
 # Renderer: the native Vulkan renderer (needs banjo_shaders.mesp and banjo_shaders.mesp.idx next to the NRO).
