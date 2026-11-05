@@ -181,7 +181,8 @@ shaders. The whole process is in [docs/building.md](docs/building.md).
 - **[devkitPro](https://devkitpro.org) and [switchbrew](https://github.com/switchbrew/libnx)** — devkitA64 and libnx.
 - The sibling ports ([renut-nx](https://github.com/ChanseyIsTheBest/renut-nx), this port's base;
   [sa2-nx](https://github.com/ChanseyIsTheBest/sa2-nx), [futari-nx](https://github.com/ChanseyIsTheBest/futari-nx), Peggle 2,
-  Sonic & All-Stars Racing Transformed), which share their fixes with this one.
+  Sonic & All-Stars Racing Transformed, [kameo-nx](https://github.com/ChanseyIsTheBest/kameo-nx), Pac-Man Championship
+  Edition DX, and the Torchlight port's findings on 2 MB blocks), which share their fixes with this one.
 - **[KhronosGroup](https://github.com/KhronosGroup/SPIRV-Cross)** — SPIRV-Cross.
 - The other libraries listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

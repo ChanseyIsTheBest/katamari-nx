@@ -835,3 +835,46 @@ writes `katamari.toml` and no log, installs the 16 packs; with the user's save t
 **The public repository.** A history audit (every blob outside third-party code) found one file of generated code:
 `app/src/renut_engine/fixes/mullhwucrash.cpp`, N&B's translated PowerPC, never built here. The public history is a rewrite
 without it, with the noreply author; the local repository keeps its own history (the file removed by a commit).
+
+## 1.0.1: 2 MB blocks and the boot's cvars (2026-11-05)
+
+The user, through the Kameo session: "uptick their versions by 0.0.1 and upload it github with these two new
+fixes/improvements", "on release notes just put -Increased performance by approximately 5%", "keep the install/update steps
+in the release notes". Then, here: "Build and upload and publish straight away".
+
+**Not measured on this game.** The 5 % is the user's wording. Kameo measured about 4.3 % on its own game, standing still in
+one GPU-heavy spot. **This NRO went up with no emulator or console run before release**, at the user's request. The console
+is the only real test of the code move: its log should say `[code blocks] text ... now on a copy`, and `left where it is`
+means it skipped itself.
+
+**Game memory** (`sdk/src/core/guest_memory_switch.cpp`, from kameo-nx `1904dad3`, which took it from the Torchlight port's
+findings). `RexGmInit` passed 2 MB as the second argument of `virtmemFindAslr`, which is a guard and not an alignment. So the
+window was never on a 2 MB boundary and all the game's memory was on 4 KB pages. It now asks for 2 MB more and rounds the
+base up. `banjo_window_blocks = false` in `katamari.toml` puts it back.
+
+**The NRO's code** (`sdk/src/ui/switch_code_blocks.cpp`, kameo-nx's at `be9ee495`, with this port's toml name). The text and
+read-only data move to a copy that lines up with their addresses modulo 2 MB. `banjo_code_blocks = false` in `katamari.toml`
+turns it off. It costs their size again in memory: about 59 MB at 1.0.0's sizes (text 50.4 MB, read-only data 8.5 MB). The
+lowest free heap in the console logs at hand is 1,736 MB (rc9).
+
+Kameo's traps, checked for this port. Every orderly exit is `__nx_applet_exit_mode = 1` and `__libnx_exit`
+(`windowed_app_main_switch.cpp`, `rex_app.cpp`); `abort()`, `exit()` and uncaught exceptions end in `diagAbortWithResult`
+(`switch_crash_hooks.c`, `runtime_switch.cpp`), so nothing returns to hbloader. The other priority 101 constructors start no
+thread, and the first thread of a constructor is the profiler's, at priority 102. The emulator doesn't run the move (it has
+no loader, so only a self-test of the swap runs). The path that puts the old copy back has never run anywhere.
+
+`banjo_tlb_test_s` (`banjo_renut_tuning.cpp`) measures the TLB's cost on the console, in the log. Kameo's corrected version of
+it hasn't run on a console either.
+
+**The boot's cvars** (`sdk/src/core/cvar.cpp`, from pacman-nx `72c28ced`). `cvar::Init` gave CLI11 every cvar, and CLI11's cost
+is quadratic in their number: 2,467 in the 1.0.0 ELF. It now registers only the ones the command line names. Old and new
+compared on 145 command lines on the PC (a test outside the repository): 0 differences, and a copy broken on purpose showed
+them. `Init` on the PC went from 346 ms to 0.05 ms at that count. Scaled from Pac-Man's 90 s or so at about 6,500 cvars, that is
+about 12 s at every console start: an estimate, not measured. The console's log can't show it, because it opens after `Init`.
+
+**The SDK's version** (`sdk/cmake/rex_version.cmake`, from kameo-nx `be9ee495`). It read this repository's `v1.0.0` tag as the
+SDK's version and stopped the configure, "floor version (0.10) is behind tag version (1.0)", in any clone with tags. The version
+now always comes from the floor.
+
+**PGO.** `pgo/` is still 1.0.0's profile. New functions are at the end of their files, and the SDK's core has no profile. A
+function changed since then keeps none (`-Wno-coverage-mismatch`).
