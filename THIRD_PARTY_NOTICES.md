@@ -15,6 +15,8 @@ folder it is in (see below).
 | [NFSMW Recompiled](https://github.com/madelrandel-blip/NFSMW-Recompiled) by madelrandel-blip | The recompilation project the ports above started from | GPL-3.0 |
 | [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) by Tom Clay, with portions from [Xenia](https://xenia.jp) (Ben Vanik and the Xenia contributors) | `sdk/` | BSD-3-Clause (`sdk/LICENSE`) |
 | [XenosRecomp](https://github.com/hedge-dev/XenosRecomp) by hedge-dev and contributors, with the changes of the ports above and this one | `shaders/`, `app/thirdparty/reblue-XenosRecomp` | MIT |
+| [culdcept-nx](https://github.com/ChanseyIsTheBest/culdcept-nx) and [culdcept-nx-installer](https://github.com/ChanseyIsTheBest/culdcept-nx-installer) by ChanseyIsTheBest | The audio and movie re-encodes' method: NAME.xmo (`sdk/include/rex/filesystem/xmo.h`, `sdk/src/filesystem/xmo.cpp`), the XMA emulation's Opus frames (`sdk/src/audio/xma_context.cpp` DecodeXmoFrame, `sdk/src/audio/xmo_opus.*`), `tools/switch/nxvideo` (base port 259) | GPL-3.0 |
+| rr6-nx and rr6-nx-installer (Ridge Racer 6's Switch port), sasrt-nx (Sonic & All-Stars Racing Transformed's) | The LZ4 / ZXC block files (`sdk/src/filesystem/lz4_blocks.cpp`), the H.265 movies' container and reader (`sdk/include/rex/filesystem/sfd_hevc.h`, `sdk/src/filesystem/sfd_hevc.cpp`), NAME.opcm (`sdk/include/rex/filesystem/opus_pcm.h`, `sdk/src/filesystem/opus_pcm.cpp`), sasrt-nx's NAME.xmop (in `xmo.*`), the lookup of re-encoded files (`sdk/src/filesystem/devices/host_path_*`) (base port 259) | GPL-3.0 |
 
 The Horizon (Switch) layer added to `sdk/` is under the SDK's BSD-3-Clause license, and the changes in `shaders/` and
 `app/thirdparty/reblue-XenosRecomp` under XenosRecomp's MIT license, so they can be reused by other ports. The rest of
@@ -30,6 +32,10 @@ this repository (`app/`, `tools/`, `docs/`) is GPL-3.0 (`LICENSE`).
 - **reblue-XenosRecomp** (`app/thirdparty/reblue-XenosRecomp`): MIT, with its own third-party folder (zstd, xxHash,
   smol-v, DXC) under their licences.
 - **Dear ImGui** (`app/thirdparty/imgui`, the PC build's overlay): MIT.
+- **The game menu's fonts** (Dear ImGui's `misc/fonts`, embedded in the build by `app/CMakeLists.txt`): ProggyTiny by
+  Tristan Grimmer (free, its licence: MIT-style); Roboto by Christian Robertson (Apache License 2.0); Karla by Jonathan
+  Pinhorn (SIL Open Font License 1.1); Cousine by Steve Matteson (Apache License 2.0). The default ("System") is the
+  console's own shared font, read at run time, not shipped.
 - **deko3d** (devkitPro): zlib, linked from devkitPro's portlibs.
 
 ## Libraries
@@ -53,6 +59,10 @@ Libraries used by the SDK, the NRO and the code generator, in `sdk/thirdparty`, 
 | [CLI11](https://github.com/CLIUtils/CLI11) | BSD-3-Clause |
 | [libnx](https://github.com/switchbrew/libnx) and the devkitA64 runtime (newlib, libstdc++) | ISC; newlib and GCC runtime licenses |
 | zlib and Zstandard, from devkitPro's Switch portlibs | zlib License; BSD-3-Clause |
+| [LZ4](https://github.com/lz4/lz4) 1.10.0 by Yann Collet (`sdk/thirdparty/lz4/lz4.c`, stored here: the decoder of the game files packed as LZ4 blocks) | BSD-2-Clause |
+| [ZXC](https://github.com/hellobertrand/zxc) 0.15.0 by Bertrand Lebonnois (`sdk/thirdparty/zxc`, stored here: the decoder of the game files packed as ZXC blocks), with [rapidhash](https://github.com/Nicoshev/rapidhash) by Nicolas De Carli | BSD-3-Clause; MIT |
+| [libopus](https://opus-codec.org) 1.3 (devkitPro's `switch-libopus`, linked into the Switch build: the decoder of the sounds an installer re-encodes to Opus; a PC build loads the system's at run time) | BSD-3-Clause |
+| [FFmpeg](https://ffmpeg.org) 7.1 as devkitPro's `switch-ffmpeg` builds it, with averne's nvtegra backend (`tools/switch/nxvideo`, built as the static library `renut_nxvideo` whose only global symbols are `nxv_*`, in the NRO only of a port whose movie player calls it: the H.265 movies' decoder on the Switch's NVDEC, and its software decoder) | GPL (built with `--enable-gpl`); LGPL-2.1-or-later sources |
 
 Only for builds on a computer or for the tests, never in the Switch NRO: SDL3 (zlib), the Vulkan loader (Apache-2.0),
 Catch2 (BSL-1.0).

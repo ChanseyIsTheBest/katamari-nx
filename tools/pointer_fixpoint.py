@@ -30,6 +30,17 @@ import struct
 import subprocess
 import sys
 
+
+def gen_file(gen, suffix):
+    """renut-ultimate (2026-11-19, port 186; found by sasrt-nx's sync): the generator names its files after the project
+    (<project>_pch.h, <project>_init.cpp, <project>_recomp.N.cpp): renut_ in the base, a port's own name otherwise."""
+    for name in sorted(os.listdir(gen)):
+        m = re.fullmatch(r'(\w+)_recomp\.\d+\.cpp', name)
+        if m:
+            return os.path.join(gen, m.group(1) + '_' + suffix)
+    return os.path.join(gen, 'renut_' + suffix)
+
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, 'app')
 TOOLS = os.path.join(ROOT, 'tools')
@@ -56,8 +67,7 @@ def find_rexglue():
 def code_range():
     # The generator writes the code range into the generated precompiled header (REX_CODE_BASE / REX_CODE_SIZE);
     # older SDKs wrote it into the init file (PPCImageConfig).
-    for name in ('renut_pch.h', 'renut_init.cpp', 'renut_config.h'):
-        path = os.path.join(GEN, name)
+    for path in (gen_file(GEN, 'pch.h'), gen_file(GEN, 'init.cpp'), gen_file(GEN, 'config.h')):
         if not os.path.exists(path):
             continue
         text = open(path, errors='replace').read()
@@ -95,15 +105,26 @@ def built_addresses(image, lo, hi):
         for k in range(1, 33):
             y = struct.unpack_from('>I', image, off + 4 * k)[0]
             op, rt, ra, imm = y >> 26, (y >> 21) & 31, (y >> 16) & 31, y & 0xFFFF
-            if op in (14, 24) and ra == rx:  # addi / ori from rX
-                value = (upper + (imm - 0x10000 if op == 14 and imm & 0x8000 else imm)) & 0xFFFFFFFF
-                yield value, IMAGE_BASE + off + 4 * k
-                if rt == rx:
-                    break
-                continue
+            # renut-ultimate (2026-11-20, port 191, found reading S4ep1-nx's tools/built_ptr_scan.py): addi rD,rA,SIMM
+            # reads rA (bits 11-15) and writes rD (bits 6-10), but ori rA,rS,UIMM reads rS (bits 6-10) and writes rA.
+            # The check took ori's destination for its source: `lis rX; ori rY,rX,lo` with rY != rX was never yielded
+            # (and the scan stopped there, taking the ori as a write of rX), and an ori writing rX from another register
+            # was yielded as a value it does not build.
+            if op in (14, 24):  # addi / ori
+                src, dst = (ra, rt) if op == 14 else (rt, ra)
+                if src == rx:
+                    value = (upper + (imm - 0x10000 if op == 14 and imm & 0x8000 else imm)) & 0xFFFFFFFF
+                    yield value, IMAGE_BASE + off + 4 * k
+                    if dst == rx:
+                        break
+                    continue
             if op == 18 or (op == 19 and (y >> 1) & 0x3FF in (16, 528)):  # b/bl/blr/bctr: end of the sequence
                 break
-            if rt == rx and op not in (36, 37, 38, 44, 45, 47, 54, 55):  # rX written (stores only read rt)
+            # port 191: the logical immediates (ori ... andis.) and the rotates (rlwimi, rlwinm, rlwnm, rld*) write rA
+            written = ra if op in (20, 21, 23, 24, 25, 26, 27, 28, 29, 30) else rt
+            if written == rx and op not in (36, 37, 38, 44, 45, 47, 54, 55):  # rX written (stores only read rt)
+                break
+            if op in (33, 35, 37, 39, 41, 43, 45, 49, 51, 53, 55) and ra == rx:  # an update form's base register
                 break
 
 
@@ -290,7 +311,9 @@ def insert_in_functions(block):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--image', default=os.path.join(ROOT, 'out', 'default_image.bin'))
+    # port 191: the dump tools/codegen.ps1 writes (REXGLUE_DUMP_IMAGE); default_image.bin was sa2-nx's name, which
+    # no tool here writes, so a run without --image stopped at the open.
+    ap.add_argument('--image', default=os.path.join(ROOT, 'out', 'renut_image.bin'))
     ap.add_argument('--scratch', default=os.path.join(ROOT, 'out', 'ptrscan'))
     ap.add_argument('--dry-run', action='store_true', help='one pass, report only, do not touch overrides.toml')
     a = ap.parse_args()

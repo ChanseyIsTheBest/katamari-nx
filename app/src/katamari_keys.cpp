@@ -29,9 +29,11 @@ REXCVAR_DEFINE_BOOL(banjo_native_xaudio_src_verify, false, "Katamari/Not built",
 // The hand-written natives' keys and banjo_hot_count are cpu/banjo_hot_guest.cpp's (Katamari's natives: memset and the
 // matrix routines, cpu/hot/banjo_hand_natives.h).
 
-// renut_engine/hooks.cpp's MSAA switch, which Renut's renderer reads (render/surfaces and the tuning): N&B's own key.
-// Katamari's MSAA is what the game asks for.
-REXCVAR_DEFINE_BOOL(disable_msaa, false, "Katamari/Graphics", "Draw the game's MSAA targets with one sample (not exact)");
+// renut_engine/hooks.cpp's MSAA switch: N&B's own key, read only by its mid-asm hooks at N&B's render-target setup
+// (hooks.cpp, which this port does not build). Renut's renderer reads msaa_level (1/2/4) instead (vivapinata-nx's note,
+// 2026-11-12; docs/katamari-notes.md, run emu3_nomsaa). Kept so the tomls that name it still load.
+REXCVAR_DEFINE_BOOL(disable_msaa, false, "Katamari/Graphics",
+                    "Not read in this port (N&B's key): msaa_level sets the samples (4, 2 or 1)");
 
 // The frame cap (renut_engine/frameHooks.cpp's limiter, not built here because of its N&B hooks).
 REXCVAR_DEFINE_STRING(frame_cap, "Off", "Katamari/Performance",
@@ -42,14 +44,38 @@ REXCVAR_DEFINE_STRING(frame_cap, "Off", "Katamari/Performance",
 // renut_engine/frameHooks.cpp, called at the end of the game's Swap (d3d/hooks/device.cpp). With the display's refresh
 // known (the Switch) a frame is released at a refresh plus the measured phase (renut_engine/display_sync.h), else on its
 // own timer; a late frame goes at once. Off, it returns at the first test and starts no thread.
+// blur-nx (2026-11-18, the game menu): the cap chosen in the menu, from the next frame (-1: frame_cap's, read at start).
+// The key itself stays as read (a string another thread would be writing); the menu writes the player's file.
+static std::atomic<int> g_frame_cap_live{-1};
+void BlurSetFrameCapLive(int fps) { g_frame_cap_live.store(fps < 0 ? 0 : fps, std::memory_order_relaxed); }
+int BlurFrameCapNow() {
+  const int live = g_frame_cap_live.load(std::memory_order_relaxed);
+  if (live >= 0)
+    return live;
+  const std::string &v = REXCVAR_GET(frame_cap);
+  return v.empty() || v == "Off" ? 0 : std::atoi(v.c_str());
+}
+
 void renutFrameLimit() {
   using clock = std::chrono::steady_clock;
-  static const int fps = [] {
+  static const int configured = [] {
     const std::string &v = REXCVAR_GET(frame_cap);
     return v.empty() || v == "Off" ? 0 : std::atoi(v.c_str());
   }();
-  if (fps <= 0)
+  const int live = g_frame_cap_live.load(std::memory_order_relaxed);
+  const int fps = live >= 0 ? live : configured;
+  // pacman-nx (2026-11-03, pacman_vblank_display_sync, futari-nx's): with no frame cap the display's refresh starts the
+  // game's next frame (display_sync.h). The game's speed follows its frames.
+  if (fps <= 0) {
+    static const bool pacing = banjo::display_sync::FramePacingOn();
+    if (pacing)
+      banjo::display_sync::WaitForFrameStart();
     return;
+  }
+  // sa2-nx (2026-10-28, sa2_renut_queue_drain): this release a refresh later, once, when the display thread asks.
+  static const bool drain = banjo::display_sync::QueueDrainOn();
+  const bool hold = drain && banjo::display_sync::TakeHold();
+  constexpr uint64_t kRefreshNs = 16'666'667ull;
   banjo::display_sync::Start();
   static clock::time_point next = clock::now();
   static uint64_t previous_release = 0;
@@ -69,9 +95,11 @@ void renutFrameLimit() {
     }
   };
   bool anchored = false;
-  const uint64_t release = banjo::display_sync::NextRelease(
+  uint64_t release = banjo::display_sync::NextRelease(
       uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count()), previous_release,
       uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(frame).count()), &anchored);
+  if (release && hold)
+    release += kRefreshNs;
   if (release) {
     previous_release = release;
     next = clock::time_point(std::chrono::duration_cast<clock::duration>(std::chrono::nanoseconds(release)));

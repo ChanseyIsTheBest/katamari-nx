@@ -46,10 +46,14 @@ SHIPPED = {
     # banjo-nx's PM4 renderer and its keys are not used here.
     'masseffect_renderer_native': 'false',
     'gpu_plugin': '""',
-    # No four-core NPDM (2026-11-01, the user: "let's just focus on 3 core performance"): empty, the NRO writes none.
-    # rc5 named the user's forwarder (0100080021954000) and wrote its NPDM on the first launch; deleting
-    # sdmc:/atmosphere/contents/0100080021954000/exefs/main.npdm puts that forwarder back on three cores.
-    'banjo_forwarder_program_id': '""',
+    # Four cores again (2026-11-22, the user to rr6-nx: "let ridge racer use 4 cores and the base as well"): the user's
+    # forwarder (0100080021954000, rc3/rc4's logs); the NRO writes sdmc:/atmosphere/contents/<id>/exefs/main.npdm at the
+    # first launch, the second has CPU 0-3 (port 251's command stage and warm helper need the system core). The game
+    # menu's four_core_mode removes it again. (2026-11-01 to 11-22: "" for three cores, the user's choice then.)
+    'banjo_forwarder_program_id': '"0100080021954000"',
+    # The uam compile thread on core 2 (2026-11-22, port 254; the user to rr6-nx: "Compile on core 2"): port 251's
+    # command stage and warm helper keep core 3 busy above it (an RR6 race compile there took 250-354 s).
+    'banjo_system_core_uam': 'false',
     # The XMA frame cache off (2026-10-31): in the rc4 console run it saved 0-8 % of the decoding and re-decoded
     # 10,000-23,000 frames per 10 s in bursts "to catch the codec up", which line up with the worst kick-to-data
     # delays (16-18 ms) while sounds stalled. Exact either way (the same samples).

@@ -16,6 +16,10 @@
 #if REX_PLATFORM_MAC
 #include <sys/mman.h>
 #endif
+#include <rex/platform.h>
+#if REX_PLATFORM_WIN32
+#include "../core/platform_win.h"  // port 193: VirtualQuery for the guest crash report
+#endif
 
 #include <fmt/format.h>
 
@@ -42,6 +46,16 @@ REXCVAR_DEFINE_BOOL(protect_on_release, false, "Memory",
                     "Protect released memory to prevent accesses");
 
 REXCVAR_DEFINE_BOOL(scribble_heap, false, "Memory", "Scribble 0xCD into all allocated heap memory");
+
+// blur-nx (2026-11-17, CG-08): the indirect call sites' caches (tools/indirect_calls.py). The section's bounds come from
+// the linker (weak: a build without generated code has no such section); the flag says a word was filled since.
+extern "C" {
+unsigned char g_rex_site_cache_dirty = 0;
+#if defined(__SWITCH__)
+extern uint64_t __start_rex_site_cache[] __attribute__((weak));
+extern uint64_t __stop_rex_site_cache[] __attribute__((weak));
+#endif
+}
 
 namespace rex::memory {
 
@@ -599,8 +613,27 @@ runtime::MMIORange* Memory::LookupVirtualMappedRange(uint32_t virtual_address) {
   return mmio_handler_->LookupRange(virtual_address);
 }
 
+#if REX_PLATFORM_SWITCH || REX_PLATFORM_WIN32
 #if REX_PLATFORM_SWITCH
 extern "C" void* RexGmShadowFor(uint64_t window_address);
+#else
+// Port 193 (TFU-nx's of 2026-11-11, via S4ep1-nx): the same report on the PC (it was Switch-only). Guest memory is read
+// only where the host page is committed and readable, so the report cannot fault itself.
+static void* RexGmShadowFor(uint64_t window_address) {
+  MEMORY_BASIC_INFORMATION mbi{};
+  if (!VirtualQuery(reinterpret_cast<const void*>(window_address), &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+      (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) || !(mbi.Protect & (PAGE_READONLY | PAGE_READWRITE |
+      PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY))) {
+    return nullptr;
+  }
+  // A read of 4 bytes may cross into the next page: check that one too.
+  const uint64_t end = window_address + 3;
+  if ((end & ~uint64_t(0xFFF)) != (window_address & ~uint64_t(0xFFF))) {
+    return RexGmShadowFor(end) ? reinterpret_cast<void*>(window_address) : nullptr;
+  }
+  return reinterpret_cast<void*>(window_address);
+}
+#endif
 
 namespace {
 /*
@@ -705,7 +738,7 @@ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> glob
         "Unhandled guest access violation: {} of guest 0x{:08X} (host 0x{:016X}) on thread 0x{:X}",
         is_write ? "write" : "read", virtual_address, reinterpret_cast<uintptr_t>(host_address),
         rex::thread::current_thread_id());
-#if REX_PLATFORM_SWITCH
+#if REX_PLATFORM_SWITCH || REX_PLATFORM_WIN32  // port 193: the PC too
     DumpGuestCrashContext(virtual_membase_);
 #endif
     return false;
@@ -1022,6 +1055,14 @@ bool Memory::SetFunction(uint32_t guest_address, PPCFunc* host_function) {
   }
   auto* slot = TranslateVirtual<PPCFunc**>(table_address);
   *slot = host_function;
+#if defined(__SWITCH__)
+  // blur-nx (2026-11-17, CG-08): the indirect call sites' one-entry caches (tools/indirect_calls.py, section
+  // rex_site_cache) may hold the old function: emptied, when any was filled since the last time.
+  if (__atomic_load_n(&g_rex_site_cache_dirty, __ATOMIC_RELAXED)) {
+    __atomic_store_n(&g_rex_site_cache_dirty, 0, __ATOMIC_RELAXED);
+    for (uint64_t* p = __start_rex_site_cache; p < __stop_rex_site_cache; ++p) __atomic_store_n(p, 0, __ATOMIC_RELAXED);
+  }
+#endif
   return true;
 }
 
@@ -1117,6 +1158,27 @@ uint32_t FromPageAccess(rex::memory::PageAccess protect) {
 BaseHeap::BaseHeap() : membase_(nullptr), heap_base_(0), heap_size_(0), page_size_(0) {}
 
 BaseHeap::~BaseHeap() = default;
+
+std::atomic<uint64_t> g_page_access_generation{1};  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo): xmemory.h
+namespace {
+// sasrt-nx (2026-11-22, the base port of sasrt_rt2_readable_memo): g_page_access_generation raised when an operation
+// that can take read access starts and again when it returns, its page changes made: a readable answer a query found
+// while the operation ran (before its changes, under the heap mutex) carries a value from before the second raise, so
+// it goes with it (raised only at the start, such an answer could carry the new value and outlive the change).
+struct PageAccessChange {
+  bool on;
+  explicit PageAccessChange(bool raise = true) : on(raise) {
+    if (on)
+      g_page_access_generation.fetch_add(1, std::memory_order_acq_rel);
+  }
+  ~PageAccessChange() {
+    if (on)
+      g_page_access_generation.fetch_add(1, std::memory_order_acq_rel);
+  }
+  PageAccessChange(const PageAccessChange &) = delete;
+  PageAccessChange &operator=(const PageAccessChange &) = delete;
+};
+}  // namespace
 
 std::unique_lock<std::recursive_mutex> BaseHeap::AcquireHostPageReconcileLock() const {
   if (page_size_ >= memory_->system_page_size_) {
@@ -1376,6 +1438,7 @@ bool BaseHeap::Save(stream::ByteStream* stream) {
 }
 
 bool BaseHeap::Restore(stream::ByteStream* stream) {
+  const PageAccessChange page_access_change;  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo)
   REXSYS_DEBUG("Heap {:08X}-{:08X}", heap_base_, heap_base_ + (heap_size_ - 1));
 
   const uint32_t host_page_size = memory_->system_page_size_;
@@ -1453,6 +1516,7 @@ bool BaseHeap::Restore(stream::ByteStream* stream) {
 }
 
 void BaseHeap::Reset() {
+  const PageAccessChange page_access_change;  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo)
   // TODO(DrChat): protect pages.
   std::memset(page_table_.data(), 0, sizeof(PageEntry) * page_table_.size());
   // TODO(Triang3l): Remove access callbacks from pages if this is a physical
@@ -1498,6 +1562,9 @@ bool BaseHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t alloc
 
 bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignment,
                           uint32_t allocation_type, uint32_t protect) {
+  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo): a commit over pages already committed sets their protection (it
+  // can take read access away): the readable answers go when the new one has no read.
+  const PageAccessChange page_access_change(!(protect & memory::kMemoryProtectRead));
   alignment = rex::round_up(alignment, page_size_);
   if (base_address % alignment != 0) {
     if (base_address % page_size_ != 0) {
@@ -1645,6 +1712,20 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t 
          base_page_number -= page_scan_stride) {
       if (page_table_[base_page_number].state != 0) {
         // Base page not free, skip to next usable page.
+        // mk9-nx (2026-10-26; port 56): past the whole region it belongs to, to the highest base whose range ends below
+        // the region (every base above it has a range that holds the region's first page, so the stride-by-stride scan
+        // ends at the same address): a match load's physical allocations stepped through tens of thousands of used
+        // pages each (the worst load frame 880 -> 350 ms on mk9-nx's console).
+        const PageEntry& used = page_table_[base_page_number];
+        if (used.region_page_count && used.base_address <= base_page_number &&
+            base_page_number < int64_t(used.base_address) + used.region_page_count) {
+          int64_t next = int64_t(used.base_address) - int64_t(page_count);
+          if (next < int64_t(low_page_number)) {
+            break;
+          }
+          next -= next % page_scan_stride;
+          base_page_number = next + page_scan_stride;  // cancel out loop logic
+        }
         continue;
       }
       // Check requested range to ensure free.
@@ -1683,6 +1764,18 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t 
          base_page_number += page_scan_stride) {
       if (page_table_[base_page_number].state != 0) {
         // Base page not free, skip to next usable page.
+        // mk9-nx (2026-10-26; port 56): past the whole region it belongs to (every base inside it is used: the same
+        // result as stepping a stride at a time).
+        const PageEntry& used = page_table_[base_page_number];
+        if (used.region_page_count && uint32_t(used.base_address) <= base_page_number &&
+            base_page_number < uint32_t(used.base_address) + uint32_t(used.region_page_count)) {
+          const uint64_t next = rex::round_up(uint64_t(used.base_address) + used.region_page_count,
+                                              uint64_t(page_scan_stride));
+          if (next > max_base_page_number) {
+            break;
+          }
+          base_page_number = uint32_t(next) - page_scan_stride;  // cancel out loop logic
+        }
         continue;
       }
       // Check requested range to ensure free.
@@ -1761,6 +1854,7 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t 
 }
 
 bool BaseHeap::Decommit(uint32_t address, uint32_t size) {
+  const PageAccessChange page_access_change;  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo)
   uint32_t page_count = get_page_count(size, page_size_, page_size_shift_);
   uint32_t start_page_number = (address - heap_base_) >> page_size_shift_;
   uint32_t end_page_number = start_page_number + page_count - 1;
@@ -1797,6 +1891,7 @@ bool BaseHeap::Decommit(uint32_t address, uint32_t size) {
 }
 
 bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
+  const PageAccessChange page_access_change;  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo)
   // Global critical region before heap_mutex_ - see
   // AcquireHostPageReconcileLock for why the order matters.
   auto global_lock = AcquireHostPageReconcileLock();
@@ -1859,6 +1954,7 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
 }
 
 bool BaseHeap::Protect(uint32_t address, uint32_t size, uint32_t protect, uint32_t* old_protect) {
+  const PageAccessChange page_access_change;  // sasrt-nx (2026-11-20, sasrt_rt2_readable_memo)
   if (!size) {
     REXSYS_ERROR("BaseHeap::Protect failed due to zero size");
     return false;

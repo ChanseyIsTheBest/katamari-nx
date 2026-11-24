@@ -1,5 +1,10 @@
 # Beautiful Katamari port: notes
 
+> In the base: katamari-nx's notes, kept as the worked example of a port on this renderer (the base builds
+> Katamari as checked in). Its console run breakdowns and progress log stay in
+> [katamari-nx](https://github.com/ChanseyIsTheBest/katamari-nx)'s docs; what the base changed since is in
+> [ultimate-fixes.md](ultimate-fixes.md) and [changelog.md](changelog.md).
+
 This file records the port: what each step found, with its evidence. The project starts from banjo-nx (Banjo-Kazooie:
 Nuts & Bolts, `D:\Banjo kazooie port\banjo-nx`, read-only): its SDK fork, app, tools, renderer and post-codegen
 passes. banjo-nx's docs are the reference for everything taken from it; comments that say "banjo-nx", "sa2-nx",
@@ -16,13 +21,13 @@ the Switch the main goal; work uninterrupted until 20:00 AEST.
 | Port folder | `D:\beautifulkatamari\katamari-nx` (git, local commits only) | next to the game, like `D:\kingdomkeflings\keflings-nx` |
 | Ryujinx data folder | `D:\New folder\ryu-data\katamari` | the port's own, as the request asks |
 | `app/assets` | a junction to `D:\beautifulkatamari\game` | the manifest reads `assets/default.xex`; no second 2.7 GB copy on a D: drive with 7-20 GB free |
-| Internal project name | `renut` (as banjo-nx) | banjo-nx's CMake, post-codegen passes and renderer glue name `renut_*` files and targets; the NRO, its title and the SD folder are katamari-nx |
+| Internal project name | `renut` (as banjo-nx) | banjo-nx's CMake, post-codegen passes and renderer glue name `renut_*` files and targets (the passes take a port's own project name too since port 186); the NRO, its title and the SD folder are katamari-nx |
 | First boot | the SDK's emulated GPU (`gpu_plugin = "xenos"`), Renut compiled out | separates CPU / kernel problems from renderer problems (peggle2-nx's order of work); Renut's hooks are at N&B's addresses and must be moved first |
 | Renut's hooks | compiled but not registered until moved (`KATAMARI_RENUT_HOOKS`, `banjo_renut_select.h`) | an N&B address is an unrelated function in this game |
 | Banjo-only sources | not built: cheats / mid-asm hooks (`hooks.cpp`), title update, DLC, `banjo_me_hooks.cpp`, XAudio natives, hand natives, hot copies, shader harvest | each is written for N&B's addresses; `src/katamari_keys.cpp` defines the keys the kept files read (off) |
 | Host shader tools | glslangValidator, SPIRV-Cross, uam copied from banjo-nx's `out/` | built from the same sources this tree carries (`tools/deko3d_build_tools.sh`) |
 | Shipped `renut.toml` | 720 lines handheld, 1080 docked (the user's choice, 2026-10-31; rc4 and rc5 shipped 720 docked by mistake, fixed in rc6), no dynamic resolution, the game's MSAA (`disable_msaa = false`), shadow scale 1x, post-processing at the game's precision, no extra frame cap | the user decides what changes the picture; the Xbox 360's own 720 lines docked, banjo-nx's 648/864 lines, dynamic resolution and MSAA off are `configs/*.toml` (`tools/make_katamari_tomls.py`) |
-| Four-core forwarder | program id `05D6EA1333487100` (banjo-nx's is `...7000`), NPDM `tools/forwarder/katamari_main.npdm` | its own id so the two NPDMs never collide; the user makes the forwarder; since rc6 off (the user: three cores): `banjo_forwarder_program_id = ""`, the package's NPDM only with `package_switch.ps1 -FourCore` |
+| Four-core forwarder | program id `05D6EA1333487100` (banjo-nx's is `...7000`), NPDM `tools/forwarder/katamari_main.npdm` | its own id so the two NPDMs never collide; the user makes the forwarder; since rc6 off (the user: three cores): `banjo_forwarder_program_id = ""`, the package's NPDM only with `package_switch.ps1 -FourCore`; four cores again since 2026-11-22 (port 252): `banjo_forwarder_program_id = "0100080021954000"`, the user's forwarder |
 | PGO + LTO | **deferred by the user** (14:55): the package is a normal `-O3` build (`app/out/switch`); PGO + LTO only for the final build, after more optimisation and the user's console tests, when the user says so | the user's message. The instrumented build (`app/out/switch-pgo-gen`, `-DBANJO_PGO=generate`) was stopped at 991 of 1044 steps and left as it is; `tools/build_switch.bat` takes `BUILD_DIR` and `CMAKE_EXTRA` for it (banjo-nx's docs/pgo-lto.md) |
 
 ## The game (2026-10-30)
@@ -407,7 +412,7 @@ game was not walked through with the scripted pad.
 
 The user's logs (in the rc2 folder, but written by rc3: the DLC installs are in them) and a phone video of the
 movies. Symbolised against `builds/2026-10-31_0030_rc3_dlc_full/katamari-nx.elf`; the breakdown is
-`docs/console-rc3-breakdown.md` (ReverseNX docked mode with handheld clocks: 1080p on the 460 MHz GPU, gameplay
+[katamari-nx's docs/console-rc3-breakdown.md](https://github.com/ChanseyIsTheBest/katamari-nx/blob/main/docs/console-rc3-breakdown.md) (ReverseNX docked mode with handheld clocks: 1080p on the 460 MHz GPU, gameplay
 GPU-bound at 24-40 ms a frame).
 
 **Movies decoded into green blocks (fixed).** Ryujinx shows the same (run `movie1`, captures every 3 s: the opening
@@ -490,7 +495,7 @@ played with that config checks it; `[hot] ... differences: 0`).
 ## The second console test, rc4 (2026-10-31 12:55)
 
 The user: every movie fixed; a beeping tone still heard and some sound effects in gameplay do not play. Breakdown:
-`docs/console-rc4-breakdown.md` (handheld, 720p: gameplay CPU-bound at 28-44 fps, the GPU 15-17 ms a frame; the main
+[katamari-nx's docs/console-rc4-breakdown.md](https://github.com/ChanseyIsTheBest/katamari-nx/blob/main/docs/console-rc4-breakdown.md) (handheld, 720p: gameplay CPU-bound at 28-44 fps, the GPU 15-17 ms a frame; the main
 thread 89 %, the draw thread 83 %).
 
 **Three cores.** Both console runs (rc3 and rc4) logged "Too few processor cores" and "forwarder NPDM not written:
@@ -532,7 +537,7 @@ sound ordinary.
 The user, after rc5: most effects loop endlessly; "let's just focus on 3 core performance", then the looping.
 
 **Where the three cores go (rc5 console run, handheld, 39 fps in a level).** Main thread 80 % of a core, the draw
-thread 72 %, the game's audio engine 27 %, the XMA decoder 18 % (`docs/console-rc5-breakdown.md`). What was looked at:
+thread 72 %, the game's audio engine 27 %, the XMA decoder 18 % ([katamari-nx's docs/console-rc5-breakdown.md](https://github.com/ChanseyIsTheBest/katamari-nx/blob/main/docs/console-rc5-breakdown.md)). What was looked at:
 
 | Where | Finding | Done |
 |---|---|---|
@@ -679,7 +684,7 @@ Accessory) from the game. It does this by adding their display names to the SDK'
 
 ## rc10 (2026-11-01): the rc9 console run, three hand natives, 560 more copies, the presents menu's seam
 
-**The rc9 console run** (`docs/console-rc9-breakdown.md`, handheld, three cores). The slowest place so far is the
+**The rc9 console run** ([katamari-nx's docs/console-rc9-breakdown.md](https://github.com/ChanseyIsTheBest/katamari-nx/blob/main/docs/console-rc9-breakdown.md), handheld, three cores). The slowest place so far is the
 stage with the music M71_KDXSE: 19-30 fps, the main thread at 101 % of a core (the two others half idle), 46 % of it in
 sub_82277E70 (objects' world transforms) and sub_822683D0 (the visibility manager's walk). The `rex_crash.log` that
 came with the logs was rc6's (the supermarket crash, still on the SD card).
@@ -878,3 +883,34 @@ now always comes from the floor.
 
 **PGO.** `pgo/` is still 1.0.0's profile. New functions are at the end of their files, and the SDK's core has no profile. A
 function changed since then keeps none (`-Wno-coverage-mismatch`).
+
+## 1.0.2, the PGO-instrumented build (2026-11-24)
+
+The user: "could you make nro 1.0.2 id like an instrumented nro now for collecting pgo data for final pgo+lto build",
+"Make sure 4xmsaa is on by default".
+- NRO version 1.0.2 (`app/CMakeLists.txt`). In it: the H.265 / Opus / LZ4-ZXC media, the installer's VFS index, the DLC
+  read in place, and the collection screen's tile fix (`banjo_renut_tile_screen_viewports`, render/draw.cpp
+  ComputeViewportSlow). Columns 2 and 4 now draw their objects; the user checked it on the console.
+- 4x MSAA by default: `msaa_level = 4` in `app/katamari_switch.toml` (the player's file) and in
+  `app/katamari_switch_defaults.toml` (built in); the game menu's reset gives 4x when `KATAMARI_BUILTIN_CONFIG` is set.
+  The base's cvar stays 1 (port 118). A `katamari.toml` an older NRO wrote keeps its own value.
+- Instrumented build: `app/out/switch-pgo-gen`, `-DBANJO_PGO=generate -DBANJO_SWITCH_LTO=ON
+  -DBANJO_RENUT_RELEASE_SHADERS=ON`, in place, no guard forms. It reads `deko3d_glsl.bin` beside itself, as the final
+  build does. The streams name `pgo-inplace/`. Merge: `python tools/pgo_merge.py <folder> pgo-inplace --gen-build
+  app/out/switch-pgo-gen/renut.nro`. Final: `tools/build_switch_release.bat` (`app/out/switch-pgo-use`).
+- Built from an uncommitted tree: the final build must use the same sources, or the changed functions keep no profile.
+
+## 1.0.2, the final build (2026-11-24)
+
+The user: "move the final build please and put it on my sd card and make it public on github as well as the installer",
+"Katamari's own repos".
+- **Training:** one console session of the instrumented NRO (`pgo/banjo_pgo_1.stream`, 6.6 MB, fetched by ftp).
+  `tools/pgo_merge.py out/pgo102_streams pgo-inplace --gen-build app/out/switch-pgo-gen/renut.nro`: 540 `.gcda`, largest
+  arc count 648,186,976, in `pgo-inplace/`.
+- **Final:** `tools/build_switch_release.bat` (`app/out/switch-pgo-use`: PGO use, LTO, in place, release shaders). No
+  profile mismatch in the log. NRO 67,387,684 bytes, SHA-256 b63136725dfadd3f8637700e5be02b4927f2043d3fca6199283a12ac64fee89b
+  (copied to `out/final_2026-11-24/katamari-nx.nro`).
+- **The console:** on the user's card as `katamari-nx.nro` (the instrumented NRO kept beside it). From the Home screen:
+  the logos, then the H.265 opening movie at 22-36 s.
+- **Shader records** for the installer: `tools/katamari_shader_files.py` again (`out/katamari_shader_files_102.json`):
+  195 shaders, 111 in `default.xex`, 84 in 57 records of the game's files (6.4 MB to read).

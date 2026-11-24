@@ -1,7 +1,7 @@
 # Beautiful Katamari for the Switch: your options. Every other setting is built into the NRO
 # (app/katamari_switch_defaults.toml). Delete this file and the game writes it again at the next start.
 
-# Samples per pixel of the game's edge smoothing (MSAA): 4 (the game's own), 2 or 1 (off).
+# Samples per pixel of the game's edge smoothing (MSAA): 1 (off), 2 or 4 (the game's own, the default).
 # Fewer gives rougher edges and less GPU work.
 msaa_level = 4
 

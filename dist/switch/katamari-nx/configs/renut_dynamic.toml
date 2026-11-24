@@ -543,6 +543,8 @@ frame_cap = "Off"
 # 2026-10-28 (the user's request): the uam shader compile thread alone goes to core 3 (banjo_system_core_uam), at
 # the lowest priority (the audio threads there go first) and held to 10 % of the core by its rests
 # (banjo_deko3d_background_compile_share); the pipeline prebuild workers stay on cores 0-2.
+# 2026-11-22 (the user to rr6-nx: "Compile on core 2"; port 254): back on core 2 (banjo_background_compile_core),
+# with port 251's command stage and warm helper on core 3. Above it there, a compile in an RR6 race took 250-354 s.
 # Dynamic resolution (2026-10-28, the user's request): the 3D image between 540 and 720 lines handheld and between
 # 720 and 1080 docked (900 before night_gpu5; at 1080 the 3D is at the display's own size, the HUD drawn into it
 # without the upscale): the low height while the GPU's time a frame is above 34.5 ms (banjo_renut_dynamic_gpu_ms,
@@ -563,10 +565,10 @@ banjo_renut_dynamic_gpu_ms = 34.5
 banjo_renut_dynamic_up_s = 1.0
 banjo_system_core = 1
 banjo_system_core_compiles = false
-banjo_system_core_uam = true
+banjo_system_core_uam = false
 banjo_system_core_xma = false
 banjo_system_core_mixer_priority = 45
-banjo_forwarder_program_id = ""
+banjo_forwarder_program_id = "0100080021954000"
 banjo_renut_host_packets = false
 banjo_renut_literals_resident = true
 banjo_renut_replay_lookahead = false

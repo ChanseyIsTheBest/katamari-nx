@@ -85,6 +85,8 @@ include("${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/gpu.cmake")
 add_library(banjo_renut_gpu OBJECT
     "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/banjo_renut_select.cpp"
     "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/banjo_renut_tuning.cpp"
+    "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/ultimate.cpp"  # renut-ultimate: the ported fixes' switches
+    "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/sasrt_gpu_round.cpp"  # sasrt-nx's GPU rounds (2026-11-08, night)
     "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/banjo_renut_checks.cpp"
     "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/banjo_renut_record.cpp"
     # banjo-nx (2026-10-19, latency batch 3): the display's refresh for the frame limiter (it reads the presents' fences)
@@ -122,6 +124,12 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set_property(SOURCE
         "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/render/draw.cpp"
         "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/guest/command_buffers.cpp"
+        # banjo-nx (2026-11-20, sasrt-nx's render-thread round 2 #10): the switches' accessors the draw path calls
+        # (ultimate.cpp: 51 statics, each a key's value; banjo_renut_tuning.cpp: the same, its A/B list under
+        # std::call_once; render_thread.cpp: one constant-initialised atomic).
+        "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/ultimate.cpp"
+        "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/banjo_renut_tuning.cpp"
+        "${CMAKE_SOURCE_DIR}/src/renut_engine/gpu/backend/render_thread.cpp"
         TARGET_DIRECTORY banjo_renut_gpu APPEND PROPERTY COMPILE_OPTIONS "-fno-threadsafe-statics")
 endif()
 # banjo-nx (2026-10-28): BANJO_SWITCH_RENDERER_LINES also gives Renut's hot render-thread files line tables (-g1), so a

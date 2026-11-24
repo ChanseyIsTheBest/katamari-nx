@@ -2,10 +2,13 @@
 # (docs/porting-start-here.md of banjo-nx: "Build and test essentials"). Started minimised; refuses to start while any
 # Ryujinx runs or when the free commit memory is under -MinCommitGB; stops only the process it started.
 #   powershell -File tools/run_ryujinx.ps1 -Seconds 300 -Name emu1 [-Toml <a katamari.toml with test keys>]
-param([int]$Seconds = 240, [string]$Name = "emu", [string]$Toml = "", [double]$MinCommitGB = 12)
+# renut-ultimate (2026-11-07): its own data folder (ryu-data\renut-ultimate, made from katamari-nx's), and the NRO of
+# app\out\<-Build> copied to its SD at each run (katamari-nx's folder and NRO are left alone).
+param([int]$Seconds = 240, [string]$Name = "emu", [string]$Toml = "", [double]$MinCommitGB = 12, [string]$Build = "switch")
 $root = Split-Path -Parent $PSScriptRoot
 $ryu = "D:\New folder\Ryubing-src\ryubing\build\Ryujinx.exe"
-$data = "D:\New folder\ryu-data\katamari"
+$data = "D:\New folder\ryu-data\renut-ultimate"
+# Ryujinx starts an NRO without argv: the app then takes REX_SWITCH_FALLBACK_EXE (app/CMakeLists.txt) as its own path.
 $sd = Join-Path $data "sdcard\switch\katamari-nx"
 $nro = Join-Path $sd "katamari-nx.nro"
 $out = Join-Path $root "out\emu_runs\$Name"
@@ -13,8 +16,30 @@ if (Get-Process -Name Ryujinx -ErrorAction SilentlyContinue) { Write-Output "a R
 $os = Get-CimInstance Win32_OperatingSystem
 $freeCommit = ($os.TotalVirtualMemorySize - ($os.TotalVirtualMemorySize - $os.FreeVirtualMemory)) / 1MB
 if ($freeCommit -lt $MinCommitGB) { Write-Output ("free commit memory {0:N1} GB < {1} GB: not starting" -f $freeCommit, $MinCommitGB); exit 3 }
-if (-not (Test-Path $nro)) { Write-Output "no NRO at $nro"; exit 4 }
+$built = Join-Path $root "app\out\$Build\renut.nro"
+if (-not (Test-Path $built)) { Write-Output "no NRO at $built"; exit 4 }
+Copy-Item $built $nro -Force
 if ($Toml) { Copy-Item $Toml (Join-Path $sd "katamari.toml") -Force }
+# renut-ultimate (2026-11-11, port 78; sasrt-nx's idea 27): an NRO without the copies' guard forms (the everyday and
+# release builds) calls every native copy directly whatever the toml's guard keys say: say so before the run.
+$cache = Join-Path $root "app\out\$Build\CMakeCache.txt"
+# renut-ultimate (2026-11-11, port 81; sasrt-nx's machine copies in place): an NRO with the copies in place (the
+# everyday and release builds) reads no copy's key and runs no guard, no counting form and no A/B target 70.
+$inPlace = (Test-Path $cache) -and (Select-String -Path $cache -Pattern '^SASRT_HOT_IN_PLACE:BOOL=(ON|1|TRUE|YES|Y)$' -Quiet)
+if ($Toml -and $inPlace -and
+    (Select-String -Path $Toml -Pattern ('^\s*(banjo_hot_guard_calls|banjo_hot_guard_period)\s*=\s*[1-9]|' +
+        '^\s*(banjo_cpu_verify|banjo_hot_count)\s*=\s*true|^\s*banjo_cpu_native_\w+\s*=\s*false|' +
+        '^\s*banjo_renut_ab_targets?\s*=.*\b70\b') -Quiet)) {
+    Write-Output ("note: app\out\$Build has the copies in place (SASRT_HOT_IN_PLACE ON): the toml's copy keys, guard / " +
+                  "verify keys, banjo_hot_count and A/B target 70 do nothing there (tools\build_switch_guard.bat, then " +
+                  "-Build switch-guard)")
+}
+if ($Toml -and -not $inPlace -and (Test-Path $cache) -and
+    (Select-String -Path $cache -Pattern '^SASRT_HOT_GUARD_FORMS:BOOL=(OFF|0|FALSE|NO|N)$' -Quiet) -and
+    (Select-String -Path $Toml -Pattern '^\s*(banjo_hot_guard_calls|banjo_hot_guard_period)\s*=\s*[1-9]|^\s*banjo_cpu_verify\s*=\s*true' -Quiet)) {
+    Write-Output ("note: app\out\$Build has no guard forms (SASRT_HOT_GUARD_FORMS OFF): the toml's guard / verify " +
+                  "keys check no native copy (tools\build_switch_guard.bat, then -Build switch-guard)")
+}
 New-Item -ItemType Directory -Force $out | Out-Null
 $logs = Join-Path $sd "logs"
 if (Test-Path $logs) { Remove-Item -Recurse -Force $logs }

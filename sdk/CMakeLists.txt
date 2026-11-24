@@ -148,7 +148,9 @@ add_compile_options(
     $<$<CONFIG:DEBUG>:-O0>
     $<$<CONFIG:RELEASE>:-O3>
     $<$<CONFIG:RELEASE>:-DNDEBUG>
-    -fno-char8_t
+    # rr6-nx (2026-11-11): C++ only. The block codecs (src/filesystem's rexblockcodecs: ZXC, LZ4) are the SDK's C sources,
+    # and GCC warned that the option is not for C at each one.
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-char8_t>
 )
 
 # Platform detection (supports AMD64 and ARM64)
@@ -241,9 +243,18 @@ configure_file(
 )
 
 # Output directories (multi-config appends /<Config>/ automatically)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
+# renut-ultimate (2026-11-07): REXGLUE_OUTPUT_IN_BUILD keeps them in this build folder. An app building the SDK from source
+# in several folders (the everyday one, PGO's instrumented and optimised builds) otherwise has every folder write the same
+# out/<platform> libraries, each replacing the others' (which kept the SDK out of the app's LTO and PGO).
+option(REXGLUE_OUTPUT_IN_BUILD "The SDK's libraries and tools in this build folder, not out/<platform> of the SDK" OFF)
+if(REXGLUE_OUTPUT_IN_BUILD)
+    set(REXGLUE_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/out")
+else()
+    set(REXGLUE_OUTPUT_DIR "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
+endif()
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REXGLUE_OUTPUT_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${REXGLUE_OUTPUT_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${REXGLUE_OUTPUT_DIR}")
 
 # Sanitizer support for debugging memory corruption and undefined behavior
 if(REXGLUE_ENABLE_SANITIZERS)

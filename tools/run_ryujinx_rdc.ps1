@@ -7,7 +7,8 @@
 #   powershell -File tools/run_ryujinx_rdc.ps1 -Seconds 420 -Name rdc1 -Toml out/x.toml -Times "330,345"
 param([int]$Seconds = 420, [string]$Name = "rdc", [string]$Toml = "", [string]$Times = "330", [double]$MinCommitGB = 8)
 $root = Split-Path -Parent $PSScriptRoot
-$rdcDir = "D:\Banjo kazooie port\tools\RenderDoc_1.46_64"
+# renut-ultimate (2026-11-13): the RenderDoc folder from RENDERDOC_DIR, else banjo-nx's copy.
+$rdcDir = if ($env:RENDERDOC_DIR) { $env:RENDERDOC_DIR } else { "D:\Banjo kazooie port\tools\RenderDoc_1.46_64" }
 $ryu = "D:\New folder\Ryubing-src\ryubing\build\Ryujinx.exe"
 $data = "D:\New folder\ryu-data\katamari"
 $sd = Join-Path $data "sdcard\switch\katamari-nx"

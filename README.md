@@ -2,7 +2,7 @@
 
 <h1 align=center>Beautiful Katamari — Nintendo Switch port</h1>
 
-<p align=center><b>katamari-nx 1.0.1</b> · <a href="https://chanseyisthebest.github.io/katamari-nx-installer/">web installer</a> · <a href="https://github.com/ChanseyIsTheBest/katamari-nx/releases/tag/v1.0.1">release</a></p>
+<p align=center><b>katamari-nx 1.0.2</b> · <a href="https://chanseyisthebest.github.io/katamari-nx-installer/">web installer</a> · <a href="https://github.com/ChanseyIsTheBest/katamari-nx/releases/tag/v1.0.2">release</a></p>
 
 An unofficial native port of the Xbox 360 version of **Beautiful Katamari** (Namco Bandai Games, 2007), with its
 downloadable content, made by static recompilation with [ReXGlue](https://github.com/rexglue/rexglue-sdk) and drawn by
@@ -21,10 +21,13 @@ Xbox 360 disc image (`.iso`, the NTSC-U release); the DLC packages (`Content/<pr
    **39-bit address space**.
 
 - Album applet mode does not give the game enough memory.
-- **Updating:** press **Create katamari-nx-update.zip** on the installer page and extract it over your folder. Your
-  `katamari.toml`, saves and game files stay.
-- **The first time you play** after installing or updating, the game compiles its shaders as it meets them, so it can
-  stutter for a moment in new places. Later sessions start smoothly.
+- **Updating from 1.0.1:** make a new `katamari-nx.zip` on the installer page, delete the old
+  `switch/katamari-nx/game_root/` folder (1.0.2 packs and re-encodes the game's files), then extract the zip over your
+  folder. Your `katamari.toml` and saves stay. 1.0.1 unpacked the DLC into
+  `switch/katamari-nx/renut/0000000000000000/4E4D07DC/00000002/`: 1.0.2 reads the packages in `dlc/` instead, so those
+  folders can be deleted (keep `Headers/`).
+- **The first time you play** after installing, the game compiles the shaders the installer did not prepare as it meets
+  them, so it can stutter for a moment in new places. Later sessions start smoothly.
 
 Features:
 
@@ -34,7 +37,13 @@ Features:
 - Face buttons by position, as on the Xbox 360 pad (Switch B = Xbox A, A = B, Y = X, X = Y), or by letter.
 - 720p handheld, 1080p docked, at stock clocks on three cores. The hub and menus hold 60 fps; the biggest stages drop
   below that.
-- Release built with link-time optimisation and PGO.
+- Smaller on the SD card: the installer packs the game's files (LZ4, the movies ZXC), re-encodes the music and voices
+  to Opus, and can re-encode the movies to H.265, which the Switch's video hardware plays: about 1.6 GB instead of
+  2.9 GB.
+- The DLC is read in place from `dlc/`, and the installer writes the game folder's index, so the first start skips
+  the folder scan.
+- 4x MSAA (the game's own edge smoothing) by default.
+- Release built with link-time optimisation and PGO, the profile taken from a session on the console.
 
 ## Settings
 
@@ -60,9 +69,11 @@ shaders). The whole process is in [docs/building.md](docs/building.md).
 - `app/`: the game (hooks, renderer, native functions, settings, CMake project)
 - `sdk/`: the ReXGlue SDK with the Horizon layer and the code generator changes
 - `tools/`: code generation, build, test, shader and analysis scripts
-- `pgo/`: the PGO profile of the released NRO (counts of which code ran, no game code or data)
+- `pgo-inplace/`: the PGO profile of the released NRO (counts of which code ran, no game code or data); `pgo/` is
+  1.0.0's, for the build without the machine copies in place
 - `dist/`: the test builds' settings
-- `docs/`: [katamari-notes.md](docs/katamari-notes.md) (the port step by step),
+- `docs/`: [katamari-notes.md](docs/katamari-notes.md) (the port step by step), [building.md](docs/building.md),
+  [ultimate-fixes.md](docs/ultimate-fixes.md) and [changelog.md](docs/changelog.md) (what came from the other ports),
   [optimising-functions.md](docs/optimising-functions.md), [codegen-crash-fixes.md](docs/codegen-crash-fixes.md),
   [progress-log.md](docs/progress-log.md), [console-rc9-breakdown.md](docs/console-rc9-breakdown.md)
 
@@ -85,6 +96,10 @@ shaders). The whole process is in [docs/building.md](docs/building.md).
   base), [sa2-nx](https://github.com/ChanseyIsTheBest/sa2-nx), [futari-nx](https://github.com/ChanseyIsTheBest/futari-nx),
   Peggle 2, Sonic & All-Stars Racing Transformed, [kameo-nx](https://github.com/ChanseyIsTheBest/kameo-nx), Pac-Man
   Championship Edition DX, and the Torchlight port's findings on 2 MB blocks.
+- The ports whose fixes 1.0.2 takes through the ultimate base (docs/ultimate-fixes.md names each): among them rr6-nx
+  (the LZ4 / ZXC game files, the DLC read in place), sasrt-nx (Sonic & All-Stars Racing Transformed: the media guide,
+  the render thread), culdcept-nx (the Opus sounds, the H.265 movies on NVDEC, the two-size folder index), blur-nx,
+  banjo-nx, vivapinata-nx (the movie hook) and the Cave ports.
 - **[KhronosGroup](https://github.com/KhronosGroup/SPIRV-Cross)**: SPIRV-Cross.
 - The other libraries listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

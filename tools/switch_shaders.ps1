@@ -26,6 +26,10 @@ $early = Join-Path $work "early_alpha_hlsl"
 $spirv = Join-Path $work "spirv"
 foreach ($d in @($early, $spirv)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d }; New-Item -ItemType Directory -Force $d | Out-Null }
 if (-not (Test-Path $exe)) { throw "no ${exe}: build the PC app with Renut first" }
+# renut-ultimate (port 69, 2026-11-10, blur-nx): "Continue" from here. XenosRecomp writes informational lines to stderr
+# ("fetch lod ..."), which Windows PowerShell makes errors when the output is captured, and "Stop" ended the script at
+# the first one (Blur). Every native call below checks $LASTEXITCODE; the folders above were made under "Stop".
+$ErrorActionPreference = "Continue"
 $env:BANJO_HLSL_DUMP_ONLY = "1"
 & $exe $dump (Join-Path $work "early_alpha_pass1.cpp") $common $early
 if ($LASTEXITCODE -ne 0) { throw "XenosRecomp (early-alpha dump) failed" }

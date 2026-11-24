@@ -1,4 +1,8 @@
-# Code-generation crash fixes in katamari-nx
+# Code-generation crash fixes (Beautiful Katamari)
+
+> In the base: katamari-nx's record, kept as the worked example. The classes of bug (functions the analysis never
+> found, tables read as jump tables, split functions, vcall thunks) and the scans after them apply to any game; the
+> addresses are Katamari's.
 
 Every crash this port has had that came from how the Xbox 360 code was translated, from the first boot
 (2026-10-30) to the supermarket DLC crash of rc6 (2026-11-01): what happened, why, what fixed it, how it was found,
@@ -156,11 +160,33 @@ Other ways the translated code can stop: no `REX_FATAL` (unresolved jump), no ju
 `__builtin_trap` in the generated code. The 929 `ppc_trap` sites are the game's own `tw`/`twi` checks, which trap on
 the Xbox 360 as well.
 
+## Another port's case: a callback built in code, in a gap (S4ep1-nx, 2026-11-18; port 191)
+
+Sonic 4 Episode I's port ([S4ep1-nx](https://github.com/FurryLilManChild/S4ep1-nx), its GitHub issue 1, fixed in its
+0.5.1): the Mad Gear zone stopped, six times in the reporter's logs, with "Call to invalid or unregistered function at
+guest address 0x8210C638". The function is a 10-instruction leaf callback (0x8210C638-0x8210C65C, ending in `blr`) in a
+gap with no `.pdata` entry. No data word holds its address: the game builds it (`lis r10,0x8211` at 0x8210C0BC, `addi
+r6,r10,-0x39C8` two instructions later) and stores it in an object at run time, so the generator never made it a
+function and the first call through the stored pointer stopped the game. Class 1 again, in the shape of class 4's
+`lis`/`addi` pairs. Fixed there by registering it (`"0x8210C638" = { size = 0x28 }` with its evidence).
+
+What the base took (port 191):
+
+- `tools/built_ptr_scan.py`, S4ep1-nx's check over the whole image: every `lis` + `addi`/`ori` within 24
+  instructions whose value is a code address outside every `.pdata` function that the generated table does not
+  register (switch-table bases and the import thunks left out). Run it after every code generation, before the first
+  long play: Katamari gives 0 candidates (37,965 registered functions, 28,226 `.pdata` functions).
+- `tools/pointer_fixpoint.py`'s own search for built addresses read `ori`'s destination as its source: `lis rX` then
+  `ori rY,rX,lo` with rY other than rX was never found. Fixed; on Katamari the search finds 402 more values, none a
+  code address, so its overrides do not change. Its `--image` default is now the dump `tools/codegen.ps1` writes
+  (`out/renut_image.bin`).
+
 ## What a scan cannot catch
 
 - A function reached only through a pointer computed in an unusual way (class 1 and 4). The three scans of
-  2026-10-31 cover stored pointers, `lis`/`addi` pairs and thunk shapes; anything else shows up at run time as
-  "unregistered function" with the address, and is fixed by registering it.
+  2026-10-31 cover stored pointers, `lis`/`addi` pairs and thunk shapes, and `tools/built_ptr_scan.py` (port 191)
+  counts the built addresses again by `.pdata`; anything else shows up at run time as "unregistered function" with the
+  address, and is fixed by registering it.
 - A register-diet mistake in code paths that `read_before_write.py` cannot see (class 3). The guard
   (`banjo_hot_guard_calls`) compares the machine-optimised copies with the generated code; it cannot check the
   generated code itself.

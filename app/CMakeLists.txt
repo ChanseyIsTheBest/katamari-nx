@@ -24,6 +24,16 @@ option(BANJO_SWITCH_EARLY_RA "Leave GCC's AArch64 early register allocation pass
 # console profile's samples fall. -g does not change the generated code: an ELF built with this ON has every function
 # at the address of the same sources built with it OFF, so it names the samples of a run of the normal NRO.
 option(BANJO_SWITCH_RENDERER_LINES "Switch: line tables for the hot native renderer files (profiling aid)" OFF)
+# banjo-nx (2026-11-20, the render thread against renut-nx 1.0.2): full debug info (-g, with the inlined functions)
+# for Renut's renderer and plume, so a console profile's samples can be named by the source function they fall in
+# even where PGO and LTO inlined it (1.0.2's ELF had it; the ultimate build's had none). -g does not change the code.
+option(BANJO_SWITCH_RENUT_DEBUG_INFO "Switch: -g for Renut's renderer and plume (profiling aid)" OFF)
+# banjo-nx (2026-11-20): the renderer's diagnostic censuses (blur_renut_diag_stage_census, blur_renut_diag_batch_census)
+# compiled in. OFF (the Switch's default): their checks are constant false and every census block compiles away; the
+# keys do nothing. In Showdown Town the checks with the keys off cost N&B's render thread ~0.1 us a draw.
+option(BANJO_SWITCH_DIAG_CENSUS "Switch: compile in the renderer's diagnostic censuses" OFF)
+# (Set on the renderer's targets below, where they exist: a directory-wide definition recompiled the generated game
+# code, ~1,000 files, for a definition it never reads.)
 if(REXGLUE_PLATFORM_SWITCH AND NOT BANJO_SWITCH_EARLY_RA)
     add_compile_options(-mearly-ra=none)
     add_link_options(-mearly-ra=none)
@@ -37,7 +47,122 @@ if(REXGLUE_PLATFORM_SWITCH AND NOT BANJO_SWITCH_OUTLINE_ATOMICS)
     add_compile_options(-mno-outline-atomics)
 endif()
 
+# renut-ultimate (2026-11-07): the SDK's libraries in each Switch build folder (sdk/CMakeLists.txt), so they can be built
+# with each folder's LTO and PGO options (BANJO_SWITCH_SDK_OPT below).
+if(REXGLUE_PLATFORM_SWITCH)
+    set(REXGLUE_OUTPUT_IN_BUILD ON CACHE BOOL "The SDK's libraries and tools in this build folder")
+endif()
+# sasrt-nx (2026-11-11, port 71): the SDK's small helpers forced inline (sdk/include/rex/ppc/diet_ops.h,
+# REX_SMALL_HELPER). Before the SDK's targets (generated/rexglue.cmake adds them), so the switch reaches them too.
+option(SASRT_FORCE_INLINE_HELPERS "The SDK's one-instruction helpers forced inline (OFF: REX_NO_FORCED_HELPERS)" ON)
+if(NOT SASRT_FORCE_INLINE_HELPERS)
+    add_compile_definitions(REX_NO_FORCED_HELPERS)
+endif()
+# sasrt-nx (2026-11-11, port 72; its idea 43 F1-F4): VMX's estimates and multiply-add / -subtract in their faster AArch64
+# forms (tools/vmx_float_macros.py): vrsqrtefp / vrefp as frsqrte / frecpe with two Newton steps, vlogefp as a NEON log2
+# estimate, vmaddfp / vnmsubfp as one fused multiply-add. NOT bit-identical to the exact forms the port computed before:
+# sasrt-nx's console fuzz (64 M lanes each) put the estimates within 3 ulp (vrsqrtefp) and 1 ulp (vrefp) of exact and the
+# fused forms different in 2.4 % of lanes (one rounding, as the 360's own vmaddfp); the 360's estimates are good to about
+# 1/4096. ON at the user's word (2026-11-11). AArch64 only: the PC keeps the exact expressions. Global, so the SDK and
+# the copies see the same. An existing build folder keeps a cached OFF: cmake -DSASRT_VMX_FAST_ESTIMATES=ON
+# -DSASRT_VMX_FUSED_MADD=ON on it.
+option(SASRT_VMX_FAST_ESTIMATES "VMX vrsqrtefp / vrefp / vlogefp as AArch64 estimates (not bit-exact)" ON)
+option(SASRT_VMX_FUSED_MADD "VMX vmaddfp / vnmsubfp as one fused multiply-add (not bit-exact)" ON)
+if(SASRT_VMX_FAST_ESTIMATES)
+    add_compile_definitions(REX_VMX_FAST_ESTIMATES)
+endif()
+if(SASRT_VMX_FUSED_MADD)
+    add_compile_definitions(REX_VMX_FUSED_MADD)
+endif()
+# blur-nx (2026-11-12, the user: "Please do the fmadds change"): the scalar fmadds / fmsubs / fnmadds / fnmsubs rounded once
+# in single precision, as the Xenon does (tools/fma_single.py, sdk/include/rex/ppc/fma_single.h), instead of the double
+# fused multiply-add rounded again to single: one unit in the last place apart in rare cases (about one operation in a
+# few hundred million), and single-precision chains stay in float registers. OFF: the double rounding, as before.
+option(BLUR_FMADDS_SINGLE "Scalar fmadds and kin rounded once in single precision (the Xenon's rounding; not bit-exact to the double form)" ON)
+if(NOT BLUR_FMADDS_SINGLE)
+    add_compile_definitions(REX_FMADDS_DOUBLE_ROUNDING)
+endif()
+# renut-ultimate (2026-11-16, port 144; tw2de_nx's fix, off by default at the user's word): fnmadd / fnmsub and their
+# single forms with the PowerPC's sign of zero and NaN (sdk/include/rex/ppc/fpu_fma.h, tools/fnm_sign.py's
+# REX_FNEG_FUSED). GCC folds the generated -std::fma(...) into FNMADD / FMSUB, which give +0 where the 360 gives -0 and
+# negate a NaN result (Xenia's hardware-recorded tests: 160 cases). ON: the fused result kept by an empty asm, then
+# negated unless NaN (an instruction or two more a site; Katamari: 272 sites). A compile-time switch: retrain the PGO
+# profile.
+option(TW2DE_FNMADD_SIGN "fnmadd / fnmsub with the PowerPC's sign of zero and NaN (exact; off by default)" OFF)
+if(TW2DE_FNMADD_SIGN)
+    add_compile_definitions(REX_FNMADD_SIGN_EXACT)
+endif()
+# renut-ultimate (2026-11-16, port 144; tw2de_nx's, off by default at the user's word): vsl / vsr with a count per byte,
+# as the hardware shifts (rex/ppc/intrinsics.h REX_VSHIFT_PER_BYTE; Xenia's hardware-recorded tests: 453 of 475 vsl
+# cases with counts that differ between bytes). The same as before for the ISA's uniform counts; on AArch64 five NEON
+# instructions each (the default vsl goes through memory). Katamari: 112 vsr sites. Retrain the PGO profile.
+option(TW2DE_VSHIFT_PER_BYTE "vsl / vsr with each byte's own shift count, as the hardware (off by default)" OFF)
+if(TW2DE_VSHIFT_PER_BYTE)
+    add_compile_definitions(REX_VSHIFT_PER_BYTE)
+endif()
+# blur-nx (2026-11-12, codegen-ideas-3 CG-13; the user: "build CG 13 ... it probably should be off by default"): all guest
+# float code with the host's flush mode on (rex/ppc/context.h, rex/ppc/diet_ops.h): no `msr fpcr` switch in the game code
+# after a thread's first, and the any-mode float helpers as the plain operations. NOT bit-exact: the Xenon's scalar FPU
+# keeps denormals (values below FLT_MIN / DBL_MIN), which this flushes to zero as its VMX unit does. The PC census
+# (banjo_diag_runtime_census: "[census] CG-13" lines, tools/census_sites.py --denormal) counts the results it changes.
+# A compile-time switch: every generated file, the copies and the SDK runtime change with it (retrain the PGO profile).
+# renut-ultimate (2026-11-13, port 133; the user: "turn it on by default in the base ... because it's universal big CPU
+# benefit"): ON by default in the Switch build (each switch is an `msr fpcr` on the console: Katamari's game code does
+# about 1.2 million a second on the PC; blur-nx's console +4.6 % fps). OFF by default in the PC build, which stays
+# exact: the census counts what the Switch build changes only where the mode still switches
+# (tools/cg13_census.ps1). An existing build folder keeps its cached value: -DBLUR_FPCR_ONE_MODE=ON / OFF changes it.
+if(REXGLUE_PLATFORM_SWITCH)
+    set(_blur_fpcr_one_mode_default ON)
+else()
+    set(_blur_fpcr_one_mode_default OFF)
+endif()
+option(BLUR_FPCR_ONE_MODE "All guest float code in the flush mode (no FPCR switches; not bit-exact for scalar denormals)"
+       ${_blur_fpcr_one_mode_default})
+if(BLUR_FPCR_ONE_MODE)
+    add_compile_definitions(REX_FPCR_ONE_MODE)
+endif()
+# renut-ultimate (2026-11-14, port 140; blur-nx's docs/cpu-near-exact-50-1113.md): the compile-time near-exact switches
+# (rex/ppc/diet_ops.h, context.h, tools/near_exact.py), each the code before when off. NOT bit-exact in rare cases:
+# #1 REX_NX_SNAN_PASS, #2 REX_NX_FCTI_NO_NAN, #17 REX_NX_DIV_NO_CHECK, #41 REX_NX_FCMP_NO_UN, #42 REX_NX_VMINMAX_FAST,
+# #5 REX_NX_XER_SO_ZERO, #19 REX_NX_NO_TRAPS (a trap only logs). OFF in the base: each game runs the PC census
+# (banjo_diag_runtime_census, the "[census] near-exact" lines) before turning them on. blur-nx's census took #2 (NaN
+# conversions not rare: 80 a second) and #42 (4 % of vector max/min lanes differ) out of the set; BLUR_NX_ONLY names
+# switches to use alone (a ;-list, for a bisect; #2 and #42 only this way), BLUR_NX_SKIP leaves some out. Every
+# generated file, the copies and the SDK change with them: retrain the PGO profile.
+option(BLUR_NEAR_EXACT "blur-nx's near-exact compile-time switches (not bit-exact in rare cases)" OFF)
+set(BLUR_NX_ONLY "" CACHE STRING "With BLUR_NEAR_EXACT: only these switches (a ;-list, for a bisect; empty: all)")
+set(BLUR_NX_SKIP "" CACHE STRING "With BLUR_NEAR_EXACT: every switch but these (a ;-list)")
+set(_blur_nx_switches REX_NX_SNAN_PASS REX_NX_DIV_NO_CHECK REX_NX_FCMP_NO_UN REX_NX_XER_SO_ZERO REX_NX_NO_TRAPS)
+if(BLUR_NEAR_EXACT AND NOT BLUR_NX_ONLY STREQUAL "")
+    list(APPEND _blur_nx_switches REX_NX_FCTI_NO_NAN REX_NX_VMINMAX_FAST)
+endif()
+if(BLUR_NEAR_EXACT)
+    foreach(_s ${_blur_nx_switches})
+        if((BLUR_NX_ONLY STREQUAL "" OR _s IN_LIST BLUR_NX_ONLY) AND NOT _s IN_LIST BLUR_NX_SKIP)
+            add_compile_definitions(${_s})
+            message(STATUS "near-exact: ${_s}")
+        endif()
+    endforeach()
+endif()
+# renut-ultimate (2026-11-14, port 140; blur-nx's #66, exact): the generated tree's store cards by the copies' rule
+# (tools/store_cards.py: only the pages whose cards Renut reads, a card written only when not set yet). ON, as in
+# blur-nx's every build; OFF: every store marks its card as before.
+option(BLUR_CARD_VIEWS_ONLY "The generated tree's store cards only for Renut's views, written only when set (exact)" ON)
+if(BLUR_CARD_VIEWS_ONLY)
+    add_compile_definitions(REX_CARD_VIEWS_ONLY)
+endif()
 include(generated/rexglue.cmake)
+# Port 158 (from fnxf_xiii, its note of 2026-10-26): the function registration (generated/renut_register.cpp, one
+# function of about 44,000 SetFunction calls, run once at start) without optimisation in the Switch build. GCC's
+# optimisation of it was the build's critical path: 1,171 s of a 1,195 s full Switch build (Katamari, 2026-11-18;
+# fnxf_xiii: 81 minutes at -O2). Appended to the generated sources' options, so it comes after their -O level and
+# wins. Without the precompiled header: GCC does not use a PCH made with optimisation in an -O0 file ("__OPTIMIZE__ not
+# defined"); renut_init.h includes renut_pch.h itself. LTO keeps each function's own level. OFF: as before.
+option(BANJO_REGISTER_O0 "Switch: the function registration file at -O0, without the PCH (build time)" ON)
+if(BANJO_REGISTER_O0 AND REXGLUE_PLATFORM_SWITCH AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp")
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp" APPEND PROPERTY COMPILE_OPTIONS -O0)
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/generated/renut_register.cpp" PROPERTY SKIP_PRECOMPILE_HEADERS ON)
+endif()
 
 # banjo-nx (from sa2-nx): the optimised codegen. The build re-runs the generator by itself whenever an input in
 # codegen.d changes (renut_config.toml with the codegen keys, the xex, the generator binary). That rewrites
@@ -72,9 +197,16 @@ endif()
 # katamari-nx (2026-10-30): banjo-nx's app without the files written for N&B's addresses (its cheats and mid-asm
 # hooks, title update and DLC, the D3D hook layer of banjo-nx's PM4 renderer, its XAudio and hand-written natives, the
 # shader harvest): src/katamari_keys.cpp defines the keys of those files that the kept ones still read.
+# renut-ultimate (2026-11-20, port 193): the game's name in the build stamp (src/build_stamp.cpp) and the NRO's title. A
+# port sets its own here.
+set(RENUT_GAME_NAME "Beautiful Katamari")
+
 set(RENUT_SOURCES
     src/main.cpp
+    src/build_stamp.cpp  # port 193: the build stamp, the first line of every log (cmake/build_stamp.cmake)
     src/katamari_keys.cpp
+    src/game_menu.cpp  # blur-nx (2026-11-18): the game menu (A+B+X+Y+L+R on the Switch, F8 on the PC)
+    src/blur_small_alloc.cpp  # blur-nx (2026-11-17, #220; port 151): small C++ allocations per thread (Switch; 32 MB)
     # katamari-nx (2026-10-31): DLC packages in the "dlc" folder next to the NRO installed at start (reNut upstream's).
     src/renut_engine/dlc_install.cpp
 	src/renut_engine/FPS.cpp
@@ -100,8 +232,13 @@ set(RENUT_SOURCES
     # the start-up check of every instruction form that only one processor has.
     src/cpu/banjo_codegen_checks.cpp
     src/cpu/banjo_forms_selfcheck.cpp
+    # blur-nx (2026-11-11, port 90): timings of a few processor forms at boot (blur_microbench, off).
+    src/cpu/blur_microbench.cpp
     # katamari-nx (2026-11-01): diagnostic of the game state's stage fields (katamari_diag_game_state, off).
     src/cpu/katamari_stage_diag.cpp
+    # renut-ultimate (2026-11-23): the movies (data/movie/*.wmv) by FFmpeg's WMV3 decoder, or nxvideo (NVDEC) when the
+    # installer re-encoded them to H.265: vivapinata-nx's / banjo-nx's / culdcept-nx's hook at Katamari's addresses.
+    src/cpu/katamari_wmv_ffmpeg.cpp
     # katamari-nx: the native copies of hot game functions (banjo_hot_guest.cpp and its shards), from this game's PC
     # profile (docs/katamari-notes.md, "Hot functions"): src/cpu/hot/localized.txt and hand.txt.
     src/cpu/banjo_hot_guest.cpp
@@ -146,6 +283,24 @@ else()
     add_executable(renut ${RENUT_SOURCES})
 endif()
 
+# Port 193 (TFU-nx's): the build stamp header, rewritten on every build when its text changes (a custom target with no
+# output runs every time; the script leaves the header alone when the commit is the same).
+if(REXGLUE_PLATFORM_SWITCH)
+    set(RENUT_BUILD_KIND "switch")
+else()
+    set(RENUT_BUILD_KIND "pc")
+endif()
+set(RENUT_BUILD_STAMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/build_stamp")
+add_custom_target(renut_build_stamp
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${RENUT_BUILD_STAMP_DIR}"
+    COMMAND "${CMAKE_COMMAND}" "-DOUT=${RENUT_BUILD_STAMP_DIR}/build_stamp.h" "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}/.."
+            "-DKIND=${RENUT_BUILD_KIND}" "-DNAME=${RENUT_GAME_NAME}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_stamp.cmake"
+    BYPRODUCTS "${RENUT_BUILD_STAMP_DIR}/build_stamp.h"
+    VERBATIM)
+add_dependencies(renut renut_build_stamp)
+target_include_directories(renut PRIVATE "${RENUT_BUILD_STAMP_DIR}")
+set_source_files_properties(src/build_stamp.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 # GPU_PLUGINS stages the emulated-GPU backend (rexgpu-xenos.dll) next to the exe.
 # It is only used when the gpu_plugin cvar is "xenos"; empty means no GPU at all
 # (the game runs but the screen stays black).
@@ -189,9 +344,15 @@ option(BANJO_GENERATED_MATH_FLAGS "-fno-math-errno on the generated game code" O
 option(BANJO_GENERATED_NO_TRAPPING_MATH "-fno-trapping-math on the generated game code (not exact, see the comment)" OFF)
 if(BANJO_GENERATED_MATH_FLAGS AND TARGET renut_recomp AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(renut_recomp PRIVATE -fno-math-errno)
-    if(BANJO_GENERATED_NO_TRAPPING_MATH)
+    # banjo-nx (2026-11-19, the rebase; blur-nx's BLUR_NO_TRAPPING_MATH form, 2026-11-16, CG-26): only with
+    # BLUR_FPCR_ONE_MODE (no flush-mode switches left in game code), and the files that write the guest FPSCR keep
+    # -ftrapping-math (tools/fp_env_files.py's list, below the round definitions).
+    if(BANJO_GENERATED_NO_TRAPPING_MATH AND BLUR_FPCR_ONE_MODE)
         target_compile_options(renut_recomp PRIVATE -fno-trapping-math)
     endif()
+endif()
+if(BANJO_GENERATED_NO_TRAPPING_MATH AND NOT BLUR_FPCR_ONE_MODE)
+    message(WARNING "banjo: BANJO_GENERATED_NO_TRAPPING_MATH needs BLUR_FPCR_ONE_MODE (the flush-mode switches); left off")
 endif()
 
 # The localized native copies (src/cpu/banjo_hot_guest.cpp includes generated/hot) are game code compiled in the app:
@@ -216,10 +377,107 @@ set(BANJO_HOT_SOURCES src/cpu/banjo_hot_guest.cpp
 )
 if(BANJO_GENERATED_MATH_FLAGS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -fno-math-errno)
+    # banjo-nx (2026-11-19; blur-nx's form): the copies as the game code (the guard compares them with it).
+    if(BANJO_GENERATED_NO_TRAPPING_MATH AND BLUR_FPCR_ONE_MODE)
+        set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -fno-trapping-math)
+    endif()
 endif()
 if(NOT REXGLUE_PLATFORM_SWITCH)
     set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_DEFINITIONS REX_DIET_CENSUS_ON)
 endif()
+# sasrt-nx (2026-11-11, port 74; its machine-copy ideas 57, 47, 52 and 39): switches of the localized copies
+# (tools/localize_native.py), each ON as in sasrt-nx; OFF compiles the copies as before port 74. The copies' code
+# changes with them: retrain the PGO profile (docs/building.md; ninja does not track the .gcda files: build the use step
+# clean). The generator's own switches are environment variables at post-codegen (SASRT_LOCALIZE_*, see the tool).
+#   - SASRT_HOT_MERGED_STORES (idea 57): an stvlx / stvrx pair, or four stvewx of one vector, as one 16-byte store of
+#     the same bytes in the copies' running form when the addresses are adjacent at run time. OFF: the original stores.
+#   - SASRT_HOT_LR_ELIDE (idea 47): the 12 bulk shards (not banjo_hot_guest.cpp's hand-picked copies, not the generated
+#     tree) compiled with tools/frame_traffic.py's opt-in REX_LR_MOVES_ELIDE: REX_LR_READ gives 0, the link register's
+#     save and REX_LR_WRITE are nothing (with C++ returns the value is never used; frame_traffic.py marks only
+#     functions where it is not data). The dead word at -8 of a copy's frame keeps its old content (sa2-nx: the link
+#     register's half of the three elisions passed its frame-exact capture). The guard compares two forms that both
+#     elide. The hand-written natives included by the shards that test REX_LR_MOVES_ELIDE (the XAudio filter's frame,
+#     cpu/hot/banjo_hand_natives.h) elide there too. BANJO_GEN_LR_MOVES_ELIDE (below) is the same for all game code.
+#   - SASRT_HOT_PREFETCH (idea 52): REX_PREFETCH_GUEST after a pointer-chasing loop's next-pointer load. OFF: nothing.
+#   - SASRT_HOT_CARD_RUNS (idea 39): the 12 bulk shards mark the store cards per run of stores to a page (cpu/
+#     banjo_hot_prelude.h; only for copies written with the runs). OFF: at every store, as the generated tree does.
+option(SASRT_HOT_MERGED_STORES "Localized copies: merged unaligned vector stores (tools/localize_native.py)" ON)
+# renut-ultimate (2026-11-11, port 84, the user's call): OFF by default. vivapinata-nx's guard found 8 differences from it
+# (the link register's save elided in one of a copy's forms and not the other: forms in different translation units,
+# only one with the define). ON in a game that has checked its copies with it (a guard run, 0 differences).
+option(SASRT_HOT_LR_ELIDE "The bulk copies (shards 0-11): the link register's dead moves left out (REX_LR_MOVES_ELIDE)" OFF)
+option(SASRT_HOT_PREFETCH "Localized copies: a prefetch after a loop's next-pointer load (REX_PREFETCH_GUEST)" ON)
+option(SASRT_HOT_CARD_RUNS "The bulk copies (shards 0-11): store cards marked per run of stores to a page" ON)
+if(NOT SASRT_HOT_MERGED_STORES)
+    target_compile_definitions(renut PRIVATE SASRT_HOT_MERGED_STORES_OFF)
+endif()
+if(NOT SASRT_HOT_PREFETCH)
+    target_compile_definitions(renut PRIVATE SASRT_HOT_PREFETCH_OFF)
+endif()
+if(SASRT_HOT_LR_ELIDE)
+    foreach(_shard RANGE 0 11)
+        set_property(SOURCE src/cpu/banjo_hot_shard_${_shard}.cpp APPEND PROPERTY COMPILE_DEFINITIONS REX_LR_MOVES_ELIDE)
+    endforeach()
+endif()
+if(SASRT_HOT_CARD_RUNS)
+    foreach(_shard RANGE 0 11)
+        set_property(SOURCE src/cpu/banjo_hot_shard_${_shard}.cpp APPEND PROPERTY COMPILE_DEFINITIONS SASRT_HOT_CARD_RUNS)
+    endforeach()
+endif()
+# sasrt-nx (2026-11-10, port 78; its idea 27): the guard's two logged forms of every localized copy (the copy's
+# logged form and the original statements' o_* form: about two thirds of the copies' code; sasrt-nx's NRO +9.3 MB,
+# +12 %) are made only with SASRT_HOT_GUARD_FORMS. Without them (BANJO_HOT_GUARD_FORMS=0, cpu/banjo_hot_guest.h) every hook calls its
+# copy's running form directly, whatever banjo_cpu_verify and banjo_hot_guard_* say, and the log says once that the
+# build has no guard forms. sasrt-nx's default is ON, OFF in its -Final build; here it is per platform:
+#   - Switch OFF: the everyday build (app/out/switch), the release and PGO folders run no guard (the compiled-in
+#     settings set banjo_hot_guard_calls = banjo_hot_guard_period = 0). An instrumented PGO folder gets the same default
+#     as its use folder, so the profile is taken on the same code. A Switch NRO for a guard or verify run (Ryujinx or the
+#     console with a guard toml): tools/build_switch_guard.bat (app/out/switch-guard).
+#   - PC ON: tools/run_pc_verify.ps1 and the guard keys' own defaults (64 / 4096) need the forms.
+# An existing folder keeps its cached value (cmake -DSASRT_HOT_GUARD_FORMS=ON|OFF <folder>; build_switch.bat's
+# GUARD_FORMS). The running forms' code is the same either way. The definition goes on the files that compile copies
+# (BANJO_HOT_SOURCES; sasrt-nx puts it on its whole target), so a change compiles only those again.
+if(REXGLUE_PLATFORM_SWITCH)
+    set(_sasrt_hot_guard_forms_default OFF)
+else()
+    set(_sasrt_hot_guard_forms_default ON)
+endif()
+option(SASRT_HOT_GUARD_FORMS "Localized copies: the guard's logged forms (banjo_cpu_verify, banjo_hot_guard_*); default ON on the PC, OFF on the Switch" ${_sasrt_hot_guard_forms_default})
+if(NOT SASRT_HOT_GUARD_FORMS)
+    set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_DEFINITIONS BANJO_HOT_GUARD_FORMS=0)
+endif()
+message(STATUS "renut: localized copies' guard forms ${SASRT_HOT_GUARD_FORMS} (SASRT_HOT_GUARD_FORMS)")
+# sasrt-nx (2026-11-11, port 81; machine copies in place): sasrt-nx's docs/handoff/inplace_copies.md.
+# With SASRT_HOT_IN_PLACE every localized copy's hook is a bare redirect (BANJO_HOT_IN_PLACE=1, cpu/banjo_hot_guest.h):
+# the generated function's symbol is the copy's Native, which loses its [[gnu::noinline]] (BANJO_HOT_NATIVE_SPEC,
+# written by tools/localize_native.py), so the compiler and LTO may inline a copy into its callers, and the generated
+# original loses its last reference (--gc-sections and LTO drop it). No state byte, no guard (it implies no guard
+# forms), no run-time key, no in-run A/B 70: a copy its list marks `off` keeps the original, every other one runs, and
+# the start-up log names each key set against that (banjo_hot_guest.cpp, InPlaceNotes). The hand-written natives keep
+# their keys. sasrt-nx's console race, each form with its own PGO + LTO: game thread -4.1 %, process CPU -2.0 %, NRO
+# -4.1 MB. The lists and the copies' code are the same in both forms, so a hooked guard build (tools/
+# build_switch_guard.bat, the PC's verify build) checks the in-place code.
+# Default (the user: every optimisation on): ON on the Switch wherever the guard forms are OFF (the everyday, release
+# and PGO folders), OFF otherwise (the PC verify build, app/out/switch-guard: a guard needs its hooks). An existing
+# folder takes the default at its next configure and keeps it (cmake -DSASRT_HOT_IN_PLACE=ON|OFF <folder>;
+# build_switch.bat's IN_PLACE). The two forms compile to different code: each has its own PGO profile
+# (BANJO_PGO_DIR, BANJO_PGO_DIR_IN_PLACE below). sasrt-nx's list option `inplace_only` (small copies compiled in place
+# only) is not taken: sasrt-nx looked at it and dropped it.
+if(REXGLUE_PLATFORM_SWITCH AND NOT SASRT_HOT_GUARD_FORMS)
+    set(_sasrt_hot_in_place_default ON)
+else()
+    set(_sasrt_hot_in_place_default OFF)
+endif()
+option(SASRT_HOT_IN_PLACE "Localized copies in place of the generated functions (no hooks, no guard, no per-copy keys); default ON on the Switch without guard forms" ${_sasrt_hot_in_place_default})
+if(SASRT_HOT_IN_PLACE)
+    set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_DEFINITIONS BANJO_HOT_IN_PLACE=1)
+    if(SASRT_HOT_GUARD_FORMS)
+        set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_DEFINITIONS BANJO_HOT_GUARD_FORMS=0)
+        message(WARNING "renut: SASRT_HOT_IN_PLACE ON has no hooks and so no guard: SASRT_HOT_GUARD_FORMS ON is not "
+                        "used (a guard or verify build: -DSASRT_HOT_IN_PLACE=OFF, tools/build_switch_guard.bat)")
+    endif()
+endif()
+message(STATUS "renut: localized copies in place ${SASRT_HOT_IN_PLACE} (SASRT_HOT_IN_PLACE)")
 
 # sa2-nx's CPU rounds of 2026-10-12 (docs/enhancements.md, "sa2-nx's CPU rounds"): one switch back per post-codegen
 # step (tools/post_codegen.py). OFF compiles the statements as they were before the step, on every platform, so a PC
@@ -330,6 +588,13 @@ endif()
 if(NOT BANJO_GEN_PROMOTED_CALLS)
     list(APPEND _banjo_round_definitions REX_PROMOTED_CALLS_OFF)
 endif()
+# sasrt-nx (2026-11-12, its idea 2; port 121): the hooked builds (the guard's: the PC, Ryujinx, tools/build_switch_guard.bat)
+# check each forwarded stack load against the real one (tools/stack_forward.py, REX_STACK_FWD_VERIFY): the guard compares
+# copies with the original statements, which forward the same way, so it cannot see a wrong forward. The in-place
+# console builds forward only.
+if(NOT SASRT_HOT_IN_PLACE)
+    list(APPEND _banjo_round_definitions REX_STACK_FWD_VERIFY)
+endif()
 if(NOT BANJO_GEN_NARROW_LOOP_BARRIER)
     list(APPEND _banjo_round_definitions REX_LOOP_BARRIER_FULL)
 endif()
@@ -423,6 +688,31 @@ foreach(_banjo_target renut_recomp renut)
 endforeach()
 message(STATUS "banjo: sa2-nx's CPU rounds: definitions '${_banjo_round_definitions}'")
 
+# banjo-nx (2026-11-19, the rebase; blur-nx's form, 2026-11-16): with BANJO_GENERATED_NO_TRAPPING_MATH, the files that
+# write the guest FPSCR (mtfsf and kin: the rounding mode) back to -ftrapping-math, tools/fp_env_files.py's list (a
+# source's option comes after its target's on the command line, so it wins): GCC would otherwise move a float
+# operation across the mode write. Without the list (no post-codegen run yet) the switch stays off.
+if(BANJO_GENERATED_NO_TRAPPING_MATH AND BLUR_FPCR_ONE_MODE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(_banjo_fp_env_list "${CMAKE_CURRENT_SOURCE_DIR}/generated/fp_env_files.txt")
+    if(EXISTS "${_banjo_fp_env_list}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_banjo_fp_env_list}")
+        file(STRINGS "${_banjo_fp_env_list}" _banjo_fp_env_files)
+        foreach(_banjo_f ${_banjo_fp_env_files})
+            set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${_banjo_f}" APPEND PROPERTY COMPILE_OPTIONS
+                         -ftrapping-math)
+        endforeach()
+        list(LENGTH _banjo_fp_env_files _banjo_fp_env_count)
+        message(STATUS "banjo: -fno-trapping-math, but ${_banjo_fp_env_count} FPSCR-writing files keep -ftrapping-math")
+    else()
+        message(WARNING "banjo: ${_banjo_fp_env_list} is missing (tools/post_codegen.py writes it): the game code "
+                "keeps -ftrapping-math")
+        if(TARGET renut_recomp)
+            target_compile_options(renut_recomp PRIVATE -ftrapping-math)
+        endif()
+        set_property(SOURCE ${BANJO_HOT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -ftrapping-math)
+    endif()
+endif()
+
 # banjo-nx (2026-10-21, the user's request): link-time and profile-guided optimisation of the Switch build, from
 # sa2-nx (its app/CMakeLists.txt and docs/enhancements.md, "Link-time optimisation of a recompiled program"). Both OFF
 # in the everyday build folder (app/out/switch): a release is built in folders of its own (docs/pgo-lto.md).
@@ -445,6 +735,11 @@ message(STATUS "banjo: sa2-nx's CPU rounds: definitions '${_banjo_round_definiti
 #     compiler's 30 refused call sites that ran billions of times) and inline-unit-growth 12 (without it the higher
 #     limit fills the default 40 per cent with code the sessions never ran). Compile options that do not touch a
 #     recorded profile.
+#   - sasrt-nx (2026-11-11, port 81; machine copies in place): the copies' two forms
+#     (SASRT_HOT_IN_PLACE above) compile to different code, so each has a profile of its own: BANJO_PGO_DIR (pgo/)
+#     for the hooked form, BANJO_PGO_DIR_IN_PLACE (pgo-inplace/, sasrt-nx's name) for the in-place one. A folder
+#     writes (generate) and reads (use) the one of its form; a use build stops at the configure while that folder has
+#     no .gcda file.
 if(REXGLUE_PLATFORM_SWITCH)
     option(BANJO_SWITCH_LTO "Link-time optimisation of the game code, the app and Renut's renderer (Switch)" OFF)
     set(BANJO_SWITCH_LTO_JOBS "4" CACHE STRING "Parallel LTRANS jobs of the Switch LTO link")
@@ -456,7 +751,39 @@ if(REXGLUE_PLATFORM_SWITCH)
     set(BANJO_PGO "" CACHE STRING "Profile-guided optimisation of the Switch build: empty, generate or use")
     set_property(CACHE BANJO_PGO PROPERTY STRINGS "" generate use)
     set(BANJO_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../pgo" CACHE PATH "Folder of the PGO profile (.gcda files)")
+    # sasrt-nx (2026-11-11, port 81; machine copies in place): the in-place form's profile.
+    set(BANJO_PGO_DIR_IN_PLACE "${CMAKE_CURRENT_SOURCE_DIR}/../pgo-inplace" CACHE PATH
+        "Folder of the PGO profile (.gcda files) of the in-place copies' form (SASRT_HOT_IN_PLACE)")
+    if(SASRT_HOT_IN_PLACE)
+        set(_banjo_pgo_profile "${BANJO_PGO_DIR_IN_PLACE}")
+    else()
+        set(_banjo_pgo_profile "${BANJO_PGO_DIR}")
+    endif()
     set(_banjo_opt_targets renut_recomp renut banjo_renut_gpu plume)
+    # renut-ultimate (2026-11-07): the SDK runtime (kernel calls, threads, the audio driver) and FFmpeg (XMA decoding) too,
+    # their C and C++ only: about 8 % of busy CPU in the console profile of 3 Nov. They were out only because every build
+    # folder shared the SDK's libraries (REXGLUE_OUTPUT_IN_BUILD above).
+    option(BANJO_SWITCH_SDK_OPT "The SDK runtime and FFmpeg in the Switch LTO and PGO (renut-ultimate)" ON)
+    set(_banjo_sdk_opt_targets)
+    if(BANJO_SWITCH_SDK_OPT AND REXGLUE_OUTPUT_IN_BUILD)
+        set(_banjo_sdk_opt_targets rexruntime libavcodec libavutil)
+    endif()
+    # renut-ultimate (2026-11-12, port 89; sasrt-nx's batch B, B1, Blur's finding): the SDK's OBJECT libraries are compiled
+    # with their own options, so they had neither LTO nor PGO. sasrt-nx's console race (in place, handheld clocks):
+    # process CPU -0.7 %, render thread -1.9 %, its audio worker -4.9 %. Four of their files stay out of LTO
+    # (_banjo_sdk_no_lto, below): threading_switch.cpp and switch_perf.cpp define --wrap's __wrap_ functions, which the
+    # link must see as ordinary definitions; exception_handler_switch.cpp and fiber_switch.cpp have top-level asm that
+    # names C symbols (g_rex_exc_*, rex_fiber_trampoline), invisible to LTO, which would drop them.
+    option(BANJO_SWITCH_SDK_OBJECT_OPT "The SDK's OBJECT libraries in the Switch LTO and PGO too (port 89)" ON)
+    set(_banjo_sdk_no_lto)
+    if(BANJO_SWITCH_SDK_OPT AND REXGLUE_OUTPUT_IN_BUILD AND BANJO_SWITCH_SDK_OBJECT_OPT)
+        list(APPEND _banjo_sdk_opt_targets rexaudio rexcore rexfilesystem rexinput rexui)
+        set(_banjo_sdk_no_lto
+            "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/src/core/threading_switch.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/src/ui/switch_perf.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/src/core/exception_handler_switch.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/src/core/fiber_switch.cpp")
+    endif()
     if(BANJO_SWITCH_LTO)
         set(_banjo_lto_compile -flto -fno-fat-lto-objects)
         set(_banjo_lto_link -flto=${BANJO_SWITCH_LTO_JOBS} -flto-partition=balanced -ffp-contract=off
@@ -471,10 +798,20 @@ if(REXGLUE_PLATFORM_SWITCH)
                 target_compile_definitions(${target} PRIVATE XXH_FORCE_MEMORY_ACCESS=0)
             endif()
         endforeach()
+        foreach(target ${_banjo_sdk_opt_targets})  # renut-ultimate (2026-11-07)
+            if(TARGET ${target})
+                target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:C,CXX>:${_banjo_lto_compile}>")
+                target_compile_definitions(${target} PRIVATE XXH_FORCE_MEMORY_ACCESS=0)
+            endif()
+        endforeach()
         target_link_options(renut PRIVATE ${_banjo_lto_link})
+        if(_banjo_sdk_no_lto)  # port 89: after the targets' -flto, so it wins
+            set_property(SOURCE ${_banjo_sdk_no_lto} TARGET_DIRECTORY rexcore rexui APPEND PROPERTY COMPILE_OPTIONS
+                         -fno-lto)
+        endif()
         message(STATUS "banjo: Switch LTO (${BANJO_SWITCH_LTO_JOBS} jobs)")
     endif()
-    get_filename_component(_banjo_pgo_dir "${BANJO_PGO_DIR}" ABSOLUTE)
+    get_filename_component(_banjo_pgo_dir "${_banjo_pgo_profile}" ABSOLUTE)
     file(TO_NATIVE_PATH "${_banjo_pgo_dir}" _banjo_pgo_dir)
     file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}" _banjo_pgo_prefix)
     if(BANJO_PGO STREQUAL "generate")
@@ -482,8 +819,17 @@ if(REXGLUE_PLATFORM_SWITCH)
                        -fno-profile-values -fprofile-update=single -fprofile-info-section=gcov_info)
         target_compile_definitions(renut PRIVATE BANJO_PGO_GENERATE=1)
     elseif(BANJO_PGO STREQUAL "use")
-        if(NOT EXISTS "${BANJO_PGO_DIR}")
-            message(FATAL_ERROR "BANJO_PGO=use: no profile in ${BANJO_PGO_DIR}")
+        # Port 81: a folder without .gcda files is no profile either (pgo-inplace/ before its first session).
+        file(GLOB _banjo_pgo_gcda "${_banjo_pgo_profile}/*.gcda")
+        if(NOT _banjo_pgo_gcda)
+            if(SASRT_HOT_IN_PLACE)
+                message(FATAL_ERROR "BANJO_PGO=use: no profile in ${_banjo_pgo_profile}, the in-place copies' form's "
+                        "(SASRT_HOT_IN_PLACE ON). Make one with an instrumented build of this form (docs/building.md, "
+                        "section 4), or configure with -DSASRT_HOT_IN_PLACE=OFF (IN_PLACE=OFF) for the hooked form "
+                        "and its profile in ${BANJO_PGO_DIR}")
+            else()
+                message(FATAL_ERROR "BANJO_PGO=use: no profile in ${_banjo_pgo_profile}")
+            endif()
         endif()
         # -fprofile-correction: the counts were taken without atomic updates (-fprofile-update=single) while several
         # threads ran the same code, so a few increments were lost and some blocks' counts do not add up; GCC
@@ -511,8 +857,13 @@ if(REXGLUE_PLATFORM_SWITCH)
                 target_compile_options(${target} PRIVATE ${_banjo_pgo})
             endif()
         endforeach()
+        foreach(target ${_banjo_sdk_opt_targets})  # renut-ultimate (2026-11-07)
+            if(TARGET ${target})
+                target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:C,CXX>:${_banjo_pgo}>")
+            endif()
+        endforeach()
         target_link_options(renut PRIVATE ${_banjo_pgo})
-        message(STATUS "banjo: PGO ${BANJO_PGO} (${BANJO_PGO_DIR})")
+        message(STATUS "banjo: PGO ${BANJO_PGO} (${_banjo_pgo_profile})")
     endif()
 endif()
 
@@ -565,6 +916,22 @@ target_sources(renut PRIVATE
 # Precompiled SPIR-V of the SDK presenter (vulkan_spirv/guest_output_*): the native renderer draws the game
 # image into the presenter output with it.
 target_include_directories(renut PRIVATE "${REXSDK_DIR}/src/ui/shaders")
+# blur-nx (2026-11-18, the game menu's font option): Dear ImGui's misc/fonts as byte arrays (game_menu_fonts.h). Their
+# licences: THIRD_PARTY_NOTICES.md.
+set(_blur_menu_fonts_dir "${REXSDK_DIR}/thirdparty/imgui/misc/fonts")
+set(_blur_menu_fonts_text "// Made by app/CMakeLists.txt from ${_blur_menu_fonts_dir} (do not edit).\n#pragma once\n")
+foreach(_pair "kMenuFontProggyTiny:ProggyTiny.ttf" "kMenuFontRoboto:Roboto-Medium.ttf" "kMenuFontKarla:Karla-Regular.ttf"
+              "kMenuFontCousine:Cousine-Regular.ttf")
+    string(REPLACE ":" ";" _parts "${_pair}")
+    list(GET _parts 0 _var)
+    list(GET _parts 1 _file)
+    file(READ "${_blur_menu_fonts_dir}/${_file}" _hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _hex "${_hex}")
+    string(APPEND _blur_menu_fonts_text "alignas(4) static const unsigned char ${_var}[] = {${_hex}};\n")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_blur_menu_fonts_dir}/${_file}")
+endforeach()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/game_menu_fonts/game_menu_fonts.h" "${_blur_menu_fonts_text}")
+target_include_directories(renut PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/game_menu_fonts")
 
 foreach(_dep imgui xxhash renderdoc)
     if(TARGET ${_dep})
@@ -572,6 +939,49 @@ foreach(_dep imgui xxhash renderdoc)
             $<TARGET_PROPERTY:${_dep},INTERFACE_INCLUDE_DIRECTORIES>)
     endif()
 endforeach()
+
+# renut-ultimate (2026-11-23; vivapinata-nx's / banjo-nx's / culdcept-nx's block, credit them): src/cpu/katamari_wmv_ffmpeg.cpp
+# calls FFmpeg's WMV3 decoder itself (sdk/thirdparty/FFmpeg/config.h switches it on: config_masseffect_wmv3.h).
+if(TARGET libavcodec)
+    target_link_libraries(renut PRIVATE libavcodec libavutil)
+endif()
+
+# Base port 259 (rr6-nx / sasrt-nx, 2026-11-21; culdcept-nx's nxvideo): the H.265 movies' decoder on the Switch's NVDEC,
+# tools/switch/nxvideo: devkitPro's switch-ffmpeg 7.1 (built with averne's nvtegra backend) linked with the shim into one
+# object whose only global symbols are nxv_*, so FFmpeg 7.1's names never meet the SDK's FFmpeg (the XMA audio). Made
+# into the static library renut_nxvideo, so only a port whose movie player calls nxv_* takes it into the NRO (the base
+# has none: each game's player is its own, as rr6-nx's SFD and sasrt-nx's USM). Built when devkitPro's FFmpeg has
+# nvtegra; RENUT_NXVIDEO=1 is then defined for the app.
+if(REXGLUE_PLATFORM_SWITCH)
+    option(RENUT_NXVIDEO "The H.265 movies' NVDEC decoder (tools/switch/nxvideo)" ON)
+    set(_nxv_pl "${DEVKITPRO}/portlibs/switch")
+    if(RENUT_NXVIDEO AND EXISTS "${_nxv_pl}/include/libavutil/hwcontext_nvtegra.h")
+        set(_nxv_src "${CMAKE_CURRENT_SOURCE_DIR}/../tools/switch/nxvideo")
+        set(_nxv_out "${CMAKE_CURRENT_BINARY_DIR}/nxvideo")
+        file(MAKE_DIRECTORY "${_nxv_out}")
+        set(_nxv_keep)
+        foreach(_s nxv_open nxv_decode nxv_flush nxv_close nxv_is_hw nxv_version nxv_stats nxv_options)
+            list(APPEND _nxv_keep "--keep-global-symbol=${_s}")
+        endforeach()
+        add_custom_command(OUTPUT "${_nxv_out}/nxvideo.o"
+            COMMAND "${CMAKE_C_COMPILER}" -O2 -ffunction-sections -fdata-sections -march=armv8-a+crc+crypto
+                    -mtune=cortex-a57 -mtp=soft -ftls-model=local-exec -fPIE -D__SWITCH__ -DNX -D_GNU_SOURCE
+                    "-I${_nxv_pl}/include" "-I${DEVKITPRO}/libnx/include" -c "${_nxv_src}/nxvideo.c" -o "${_nxv_out}/shim.o"
+            COMMAND "${CMAKE_LINKER}" -r -o "${_nxv_out}/full.o" "${_nxv_out}/shim.o"
+                    --start-group "${_nxv_pl}/lib/libavcodec.a" "${_nxv_pl}/lib/libavutil.a" --end-group
+            COMMAND "${CMAKE_OBJCOPY}" ${_nxv_keep} "${_nxv_out}/full.o" "${_nxv_out}/nxvideo.o"
+            DEPENDS "${_nxv_src}/nxvideo.c" "${_nxv_src}/nxvideo.h"
+            COMMENT "nxvideo: FFmpeg 7.1 with nvtegra in one object, only nxv_* global"
+            VERBATIM)
+        set_source_files_properties("${_nxv_out}/nxvideo.o" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+        add_library(renut_nxvideo STATIC "${_nxv_out}/nxvideo.o")
+        set_target_properties(renut_nxvideo PROPERTIES LINKER_LANGUAGE C)
+        target_include_directories(renut_nxvideo INTERFACE "${_nxv_src}")
+        target_link_libraries(renut PRIVATE renut_nxvideo)
+        target_compile_definitions(renut PRIVATE RENUT_NXVIDEO=1)
+        message(STATUS "nxvideo: H.265 / NVDEC movies (devkitPro's switch-ffmpeg with nvtegra)")
+    endif()
+endif()
 
 # Nintendo Switch: renut.nro next to the ELF. On the SD card it goes in
 # sdmc:/switch/banjo-nx/ with the extracted disc in game_root/ beside it.
@@ -601,10 +1011,12 @@ if(REXGLUE_PLATFORM_SWITCH)
     endif()
     # katamari-nx (2026-11-02, the user's request): author ChanseyIsTheBest, the user's icon (the cover art).
     # 2026-11-05: version 1.0.1, the game's memory and the NRO's code on 2 MB blocks, and the boot's cvars.
+    # 2026-11-24 (the user: "make nro 1.0.2"): version 1.0.2, the H.265 / Opus / LZ4-ZXC media, the installer's VFS
+    # index, the DLC read in place and the collection screen's tile fix.
     rexglue_switch_add_nro(renut
-        NAME "Beautiful Katamari"
+        NAME "${RENUT_GAME_NAME}"  # port 193: set once, above
         AUTHOR "ChanseyIsTheBest"
-        VERSION "1.0.1"
+        VERSION "1.0.2"
         ${RENUT_ICON_ARG})
 endif()
 
@@ -613,6 +1025,17 @@ endif()
 if(WIN32)
     target_compile_options(renut PRIVATE -gline-tables-only -gcodeview)
     target_link_options(renut PRIVATE "LINKER:/DEBUG:FULL")
+endif()
+
+if(REXGLUE_PLATFORM_SWITCH AND NOT BANJO_SWITCH_DIAG_CENSUS)  # banjo-nx (2026-11-20), see the option above
+    target_compile_definitions(banjo_renut_gpu PRIVATE RENUT_DIAG_CENSUS_OFF)
+    target_compile_definitions(renut PRIVATE RENUT_DIAG_CENSUS_OFF)
+endif()
+
+if(REXGLUE_PLATFORM_SWITCH AND BANJO_SWITCH_RENUT_DEBUG_INFO)
+    target_compile_options(banjo_renut_gpu PRIVATE -g)
+    target_compile_options(plume PRIVATE -g)
+    target_link_options(renut PRIVATE -g)  # LTO: the link writes the late debug info of the units compiled with -g
 endif()
 
 if(REXGLUE_PLATFORM_SWITCH AND BANJO_SWITCH_RENDERER_LINES)

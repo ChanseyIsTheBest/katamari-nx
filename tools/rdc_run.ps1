@@ -3,7 +3,9 @@
 #   powershell -File tools/rdc_run.ps1 -Script rdc_passes.py -In out/emu_runs/rdc_emu2/capture_01_frameN.rdc -Out out/rdc/emu
 param([string]$Script, [string]$In, [string]$Out, [int]$First = 0, [int]$Last = 1000000000, [int]$TimeoutS = 900)
 $root = Split-Path -Parent $PSScriptRoot
-$q = "D:\Banjo kazooie port\tools\RenderDoc_1.46_64\qrenderdoc.exe"
+# renut-ultimate (2026-11-13): the RenderDoc folder from RENDERDOC_DIR, else banjo-nx's copy.
+$rdcDir = if ($env:RENDERDOC_DIR) { $env:RENDERDOC_DIR } else { "D:\Banjo kazooie port\tools\RenderDoc_1.46_64" }
+$q = Join-Path $rdcDir "qrenderdoc.exe"
 New-Item -ItemType Directory -Force $Out | Out-Null
 $env:RDC_IN = (Resolve-Path $In).Path
 $env:RDC_OUT = (Resolve-Path $Out).Path

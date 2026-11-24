@@ -4,7 +4,10 @@
 # The log is written unbuffered (log_file_writer = false): the run is stopped by force, which would drop the buffer.
 # -Visible: the window is shown (not minimised): Renut presents (and so captures and paces by vsync) only with a
 # swapchain, which a minimised window does not get.
-param([int]$Seconds = 90, [string]$Name = "run", [int]$Every = 15, [string]$Extra = "", [switch]$Visible)
+# -Game (blur-nx, 2026-11-18): another game folder (a web installer's game_root, with its .lz4b files, for example) in
+# place of Katamari's (passing --game_data_root in -Extra too would give the key twice).
+param([int]$Seconds = 90, [string]$Name = "run", [int]$Every = 15, [string]$Extra = "", [switch]$Visible,
+      [string]$Game = "D:/beautifulkatamari/game")
 $root = Split-Path -Parent $PSScriptRoot
 $dir = Join-Path $root "app\out\pc"
 $exe = Join-Path $dir "renut.exe"
@@ -14,9 +17,12 @@ $log = Join-Path $logs "$Name.log"
 Remove-Item $log -ErrorAction SilentlyContinue
 $min = if ($Visible) { "false" } else { "true" }
 $args = @("--log_file=$log", "--audio_mute=true", "--window_start_minimized=$min", "--fullscreen=false",
-          "--game_data_root=D:/beautifulkatamari/game", "--user_data_root=$root/out/pc_user",
+          "--game_data_root=$Game", "--user_data_root=$root/out/pc_user",
           "--nfsmw_captura_cada_s=$Every", "--nfsmw_captura_max=60", "--log_file_writer=false") +
         @($Extra -split ' ' | Where-Object { $_ })
+# banjo-nx (2026-11-19): Start-Process joins -ArgumentList's elements with spaces and quotes none of them, so a path
+# with a space ("D:\Banjo kazooie port\...") split into two arguments and the run wrote no log.
+$args = @($args | ForEach-Object { if ($_ -match ' ' -and $_ -notmatch '^".*"$') { '"' + $_ + '"' } else { $_ } })
 $style = if ($Visible) { "Normal" } else { "Minimized" }
 $p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $dir -PassThru -WindowStyle $style `
      -RedirectStandardError (Join-Path $logs "stderr.txt") -RedirectStandardOutput (Join-Path $logs "stdout.txt")

@@ -45,3 +45,6 @@ pgo/*
 *.stream
 # ...except the PGO profile of the released NRO (counts of which code ran, no game code or data)
 !pgo/*.gcda
+# 2026-11-11 (port 81): the in-place copies' form has a profile of its own (CMake BANJO_PGO_DIR_IN_PLACE), kept the same way
+pgo-inplace/*
+!pgo-inplace/*.gcda

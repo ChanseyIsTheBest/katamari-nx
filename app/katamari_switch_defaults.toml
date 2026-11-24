@@ -8,6 +8,9 @@ gpu_allow_invalid_fetch_constants = true
 readback_memexport = false
 readback_memexport_fast = false
 disable_msaa = false
+# 2026-11-24 (the user: "Make sure 4xmsaa is on by default"): the game's own 4x MSAA; the base's msaa_level is 1
+# (port 118). The player's katamari.toml (app/katamari_switch.toml) writes 4 too and overrides this.
+msaa_level = 4
 banjo_shader_misses = ""
 log_level = "off"
 log_file_writer = false
@@ -211,10 +214,10 @@ banjo_renut_dynamic_gpu_ms = 34.5
 banjo_renut_dynamic_up_s = 1.0
 banjo_system_core = 1
 banjo_system_core_compiles = false
-banjo_system_core_uam = true
+banjo_system_core_uam = false  # port 254: compiles on core 2 (the user, 2026-11-22)
 banjo_system_core_xma = false
 banjo_system_core_mixer_priority = 45
-banjo_forwarder_program_id = ""
+banjo_forwarder_program_id = "0100080021954000"
 banjo_renut_host_packets = false
 banjo_renut_literals_resident = true
 banjo_renut_replay_lookahead = false
